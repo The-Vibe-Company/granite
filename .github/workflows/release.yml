@@ -105,7 +105,12 @@ jobs:
             echo "the trusted publisher configuration on npmjs.com."
             exit 1
           fi
-          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "$HOME/.npmrc"
+          # setup-node points NPM_CONFIG_USERCONFIG at a temp .npmrc, so writing to
+          # $HOME/.npmrc is ignored by npm entirely and the publish fails with
+          # ENEEDAUTH. Write to the file npm actually reads.
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "$npmrc"
+          echo "wrote auth to $npmrc"
           npm publish --provenance
 
   publish-current:
@@ -187,5 +192,10 @@ jobs:
             echo "the trusted publisher configuration on npmjs.com."
             exit 1
           fi
-          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "$HOME/.npmrc"
+          # setup-node points NPM_CONFIG_USERCONFIG at a temp .npmrc, so writing to
+          # $HOME/.npmrc is ignored by npm entirely and the publish fails with
+          # ENEEDAUTH. Write to the file npm actually reads.
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "$npmrc"
+          echo "wrote auth to $npmrc"
           npm publish --provenance
