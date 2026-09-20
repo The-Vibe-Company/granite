@@ -179,6 +179,64 @@ def candidate_values(text: str) -> list[str]:
     return list(dict.fromkeys(spans))[:24]
 
 
+
+# A bounded relation vocabulary. Free-form relations cannot be validated and pollute
+# grouping; these map onto values that are verifiable from the text.
+# Unit-specific on purpose: a generic "count" made "150 questions" and "389 tasks" the
+# same relation, which is wrong for grouping and would have made unrelated metrics look
+# like competing values for one attribute.
+METRIC_RELATIONS = {
+    "ships_on": "The date something ships, launches or goes live.",
+    "starts_on": "The date something starts or begins.",
+    "ends_on": "The date something ends, expires or is due.",
+    "question_count": "A number of questions or questionnaire items.",
+    "task_count": "A number of tasks, actions or todos.",
+    "actor_count": "A number of people, actors or participants.",
+    "signal_count": "A number of signals, rules or clinical inputs.",
+    "item_count": "A number of other items, categories or entries.",
+    "price": "An amount of money, fee, budget or salary.",
+    "version": "A version or release identifier.",
+    "status": "Whether something is active, paused, archived, open or closed.",
+}
+
+# Structured, verifiable tokens. Each is checkable against the sentence, which is what
+# makes a strict write-gate safe: our runs showed these extract cleanly while
+# interpretive claims produced values like "standalone ou avec un".
+ABSOLUTE_DATE_RE = r"\b\d{4}-\d{2}-\d{2}\b"
+MONTH_NAMES = "janvier|fevrier|février|mars|avril|mai|juin|juillet|aout|août|septembre|octobre|novembre|decembre|décembre"
+WRITTEN_DATE_RE = rf"\b\d{{1,2}}\s+(?:{MONTH_NAMES})\s+\d{{4}}\b"
+MONTH_YEAR_RE = rf"\b(?:{MONTH_NAMES})\s+\d{{4}}\b"
+MONEY_RE = r"\b\d[\d\s.,]*\s?(?:k€|€|\$|kEUR|EUR)\b"
+COUNT_RE = r"\b\d[\d\s.,]*\s?(?:Q\b|r[eè]gles?|t[aâ]ches?|acteurs?|items?|questions?|signaux?|cat[eé]gories?|%)\b"
+VERSION_RE = r"\bv?\d+\.\d+(?:\.\d+)?\b"
+
+
+def metric_candidates(sentence: str) -> list[dict[str, str]]:
+    """Structured values in a sentence, each with the token class that found it."""
+    found: list[tuple[int, dict[str, str]]] = []
+    for match in re.finditer(ABSOLUTE_DATE_RE, sentence):
+        found.append((match.start(), {"kind": "date", "value": match.group(0)}))
+    for match in re.finditer(WRITTEN_DATE_RE, sentence):
+        found.append((match.start(), {"kind": "date", "value": match.group(0)}))
+    for match in re.finditer(MONTH_YEAR_RE, sentence):
+        found.append((match.start(), {"kind": "date", "value": match.group(0)}))
+    for match in re.finditer(MONEY_RE, sentence):
+        found.append((match.start(), {"kind": "money", "value": re.sub(r"\s+", " ", match.group(0)).strip()}))
+    for match in re.finditer(COUNT_RE, sentence):
+        found.append((match.start(), {"kind": "count", "value": re.sub(r"\s+", " ", match.group(0)).strip()}))
+    for match in re.finditer(VERSION_RE, sentence):
+        found.append((match.start(), {"kind": "version", "value": match.group(0)}))
+    found.sort(key=lambda pair: pair[0])
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for _pos, item in found:
+        if item["value"] in seen:
+            continue
+        seen.add(item["value"])
+        out.append(item)
+    return out[:8]
+
+
 def build_extraction_questions(candidates: list[dict[str, Any]], note_title: str = "") -> dict[str, Any]:
     questions: dict[str, Any] = {}
     for candidate in candidates:
@@ -596,6 +654,201 @@ def align(api_key: str, args: argparse.Namespace, vault: Path) -> int:
     return 0
 
 
+def month_to_iso(value: str) -> str | None:
+    """Normalise a written date to ISO, deterministically."""
+    text = value.strip().lower()
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", text)
+    if match:
+        return text
+    match = re.match(rf"^(\d{{1,2}})\s+({MONTH_NAMES})\s+(\d{{4}})$", text)
+    if match:
+        month = MONTHS.get(match.group(2))
+        if month:
+            return f"{match.group(3)}-{month}-{int(match.group(1)):02d}"
+    match = re.match(rf"^({MONTH_NAMES})\s+(\d{{4}})$", text)
+    if match:
+        month = MONTHS.get(match.group(1))
+        if month:
+            return f"{match.group(2)}-{month}-01"
+    return None
+
+
+def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
+    """Extract only structured, verifiable claims.
+
+    The broad `facts` command proposes anything that reads like an assertion, and our
+    runs showed why that is unreliable: subjects came out as verbs and values as
+    sentence fragments. This command narrows to tokens that can be *checked* - dates,
+    counts, money, versions - where the value is verifiable against the sentence and a
+    strict write gate is therefore safe to trust.
+
+    The subject is the note's own entity, resolved deterministically from its title
+    rather than asked of the model, because a free choice of subject produced
+    "Fonctionne" and "Flux" on real prose.
+    """
+    con = sqlite3.connect(f"file:{granite_db(vault)}?mode=ro", uri=True)
+    try:
+        note = load_note(con, args.slug)
+    finally:
+        con.close()
+
+    subject = re.sub(r"^\[\[|\]\]$", "", note["title"]).split("—")[0].split("(")[0].strip()
+    if not subject:
+        print(json.dumps({"status": "error", "reason": "note has no usable title as subject"}, indent=2))
+        return 0
+
+    # Only sentences that actually carry a structured token can yield a metric.
+    sentences_with_metrics: list[dict[str, Any]] = []
+    for candidate in sentences(note["body"], args.candidates * 4):
+        found = metric_candidates(candidate["text"])
+        if found:
+            sentences_with_metrics.append({**candidate, "metrics": found})
+    sentences_with_metrics = sentences_with_metrics[: args.candidates]
+
+    if not sentences_with_metrics:
+        print(json.dumps({
+            "status": "ok", "note": note["slug"], "subject": subject, "proposed": 0,
+            "note_detail": "no sentence carries a structured value",
+        }, indent=2))
+        return 0
+
+    questions: dict[str, Any] = {}
+    for candidate in sentences_with_metrics:
+        cid = candidate["id"]
+        options = {m["value"]: None for m in candidate["metrics"]}
+        questions[f"metric::{cid}"] = {
+            "type": "choice",
+            "instructions": (
+                f"Which candidate_metrics entry is a value that candidate_sentences[id={cid}] "
+                "asserts as a fact? Choose no_metric if none is asserted."
+            ),
+            "criteria": {**options, "no_metric": "None of these is asserted as a fact."},
+        }
+        questions[f"relation::{cid}"] = {
+            "type": "choice",
+            "instructions": (
+                f"Which relation does candidate_sentences[id={cid}] assert for the metric it "
+                "states? Choose the closest."
+            ),
+            "criteria": {**METRIC_RELATIONS, "other": "None of these fits."},
+        }
+        questions[f"phrase::{cid}"] = {
+            "type": "choice",
+            "instructions": (
+                f"For candidate_sentences[id={cid}], what exactly is being counted or measured? "
+                "Choose the phrase that names it."
+            ),
+            "criteria": {
+                "questionnaire_items": "Items in a questionnaire or survey.",
+                "clinical_rules": "Clinical rules, signals or decision rules.",
+                "clinical_signals": "Individual clinical signals or indicators.",
+                "action_categories": "Categories of action or intervention.",
+                "action_tasks": "Tasks, actions or todos.",
+                "mobile_screens": "Screens or pages in an application.",
+                "care_recipients": "People being cared for, or caregivers.",
+                "other_measure": "Something else being counted or measured.",
+            },
+        }
+        questions[f"world::{cid}"] = {
+            "type": "noul",
+            "instructions": (
+                f"Does candidate_sentences[id={cid}] assert a fact about the world rather than "
+                "about the document itself or its provenance?"
+            ),
+            "criteria": {"true": "A claim about an entity or project.",
+                         "false": "About the document, its version history, or who sent it."},
+        }
+
+    response = post_questions(
+        api_key, args.model,
+        {"note": {"title": note["title"], "type": note["type"]},
+         "note_subject": subject,
+         "candidate_sentences": [
+             {"id": c["id"], "text": c["text"]}
+             for c in sentences_with_metrics
+         ],
+         "candidate_metrics": [
+             {"sentence_id": c["id"], "values": [m["value"] for m in c["metrics"]]}
+             for c in sentences_with_metrics
+         ]},
+        questions,
+    )
+    answers = response.get("answers", {})
+
+    proposals: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    for candidate in sentences_with_metrics:
+        cid = candidate["id"]
+        value = answers.get(f"metric::{cid}", {}).get("choice")
+        relation = answers.get(f"relation::{cid}", {}).get("choice")
+        world = float(answers.get(f"world::{cid}", {}).get("noul", 0.0))
+        entry = {
+            "source": note["slug"], "span": candidate["text"], "subject": subject,
+            "relation": relation, "object": value, "world_claim": round(world, 2),
+        }
+        phrase = answers.get(f"phrase::{cid}", {}).get("choice")
+        # A counted metric gets a relation that names what is counted, so six different
+        # counts for one subject are six relations rather than six competing values.
+        if relation in {"question_count", "task_count", "actor_count", "signal_count", "item_count"}:
+            if not phrase or phrase == "other_measure":
+                relation = None  # ambiguous measurement: drop rather than guess
+            else:
+                relation = phrase
+        if not value or value == "no_metric" or not relation or relation == "other" or world < args.min_world_claim:
+            entry["why"] = (
+                "model asserts no metric" if not value or value == "no_metric"
+                else "what is counted could not be named" if not relation
+                else "no bounded relation fits" if relation == "other"
+                else "not a world claim"
+            )
+            dropped.append(entry)
+            continue
+        # Resolve the date deterministically. A date metric becomes valid_from; any
+        # other metric keeps the default unless the sentence states a separate date.
+        stated = None
+        for item in candidate["metrics"]:
+            if item["kind"] == "date":
+                stated = month_to_iso(item["value"])
+                if stated:
+                    break
+        if relation in {"ships_on", "starts_on", "ends_on"} and value:
+            stated = month_to_iso(value) or stated
+        entry["valid_from"] = stated or args.today
+        entry["date_basis"] = "stated in the sentence" if stated else f"not stated; defaults to {args.today}"
+        if stated and relation not in {"ships_on", "starts_on", "ends_on"}:
+            # The date was stated but is not the asserted value; keep both.
+            entry["relation"] = "count" if relation is None else relation
+        proposals.append(entry)
+
+    # One entry per (relation, object): the same value stated twice is one fact.
+    deduped: list[dict[str, Any]] = []
+    seen_triples: set[tuple[str, str]] = set()
+    for proposal in proposals:
+        key = (str(proposal["relation"]), str(proposal["object"]))
+        if key in seen_triples:
+            continue
+        seen_triples.add(key)
+        deduped.append(proposal)
+    proposals = deduped
+
+    print(json.dumps({
+        "status": "ok",
+        "note": note["slug"],
+        "subject": subject,
+        "model": response.get("model", args.model),
+        "usage": response.get("usage", {}),
+        "sentences_with_metrics": len(sentences_with_metrics),
+        "proposed": len(proposals),
+        "facts": proposals,
+        "dropped": dropped,
+        "note_detail": (
+            "Structured metrics only. Every value is verifiable against its sentence, and "
+            "the subject is the note's own entity, resolved in code."
+        ),
+    }, indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -603,7 +856,7 @@ def main(argv: list[str]) -> int:
             "Proposals only: this never writes to the vault."
         ),
     )
-    parser.add_argument("command", choices=["facts", "conflicts", "align"])
+    parser.add_argument("command", choices=["facts", "metrics", "conflicts", "align"])
     parser.add_argument("slug", nargs="?", help="required for facts and conflicts")
     parser.add_argument("--limit", type=int, default=8, help="notes to compare against (conflicts)")
     parser.add_argument("--candidates", type=int, default=40, help="sentences to consider (facts)")
@@ -640,6 +893,8 @@ def main(argv: list[str]) -> int:
 
     if args.command == "facts":
         return extract(api_key, args, vault)
+    if args.command == "metrics":
+        return metrics(api_key, args, vault)
     if args.command == "align":
         return align(api_key, args, vault)
     return conflicts(api_key, args, vault)

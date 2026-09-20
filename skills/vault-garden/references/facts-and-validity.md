@@ -339,3 +339,43 @@ enough to auto-apply to a vault whose owner will not read it. **Measure precisio
 a labelled sample before enabling `--write` on a real vault.** Targeted extraction on
 structured content (pricing, dates, counts, contract terms) is the natural place to
 start, because there the value is verifiable rather than interpretive.
+
+## Targeted extraction: `metrics`
+
+The broad `facts` command proposes anything that reads like an assertion, and our runs
+showed why that is unreliable on prose. `metrics` narrows to values that can be
+*checked*, which is what makes a strict gate safe:
+
+```bash
+python3 skills/vault-garden/scripts/jev_facts.py metrics <slug> | granite facts --write --json
+```
+
+- **The subject is the note's own entity**, resolved in code from its title, never
+  chosen by the model. A free choice of subject produced `Fonctionne`, `Flux` and
+  `Déterminisme` on real notes.
+- **The relation comes from a bounded vocabulary** (dates, counts, money, versions),
+  split by unit so "150 questions" and "389 tasks" are not one relation.
+- **Values are structured tokens** found by regex — ISO dates, written dates, money,
+  counters, versions — so every value is verifiable against its sentence and a
+  hallucinated one is refused by the write gate.
+- Document-level talk is dropped: on the engine-spec note, `metrics` dropped
+  "Source: *Le moteur clinique Monka …*, v1.0" and a `Reçu le … via Mael Yang`
+  provenance line, while keeping "MVP ships 2026-05-10", "202 signaux",
+  "389 tâches", "135 acteurs".
+
+Verified end to end: 12 proposals accepted, 0 refused, written into the ledger, then
+answered by `granite facts --subject Monka`.
+
+### The remaining flaw, stated plainly
+
+A note that counts several different things with the same unit still collides: the
+engine-spec note yields six distinct values under `question_count` (150 Q, 126
+questions, 24 questions, 55 questions, 52 Q, 50 Q), which are different measurements
+rather than competing facts. The ledger surfaces them all as current, which is honest
+but not yet useful grouping.
+
+I tried letting the model name what is counted by selecting a description; it returned
+the option key rather than the description, so the collision remained. Fixing this
+properly needs either unit-bearing relation names chosen at a layer that can validate
+them, or a separate "what is measured" field. It is recorded here rather than papered
+over, because it is the one thing standing between this and unattended use.
