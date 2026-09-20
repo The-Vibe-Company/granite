@@ -1,0 +1,14 @@
+.github/workflows/release.yml
+  h_ecee222750141d 41,74,79-82,86-87,116,149,154-157,161-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a9f4f55fce87d95047fc9e97b4051f297b127c31",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
