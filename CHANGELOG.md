@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.17](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.16...granite-mem-v0.1.17) (2026-09-20)
+
+
+### Bug Fixes
+
+* **deps:** support Node 24 by upgrading better-sqlite3 to ^13 ([#60](https://github.com/The-Vibe-Company/granite/issues/60)) ([d1ac434](https://github.com/The-Vibe-Company/granite/commit/d1ac434a8d4d91fd6e0104182c92ebce97318807))
+* **release:** align the publish job with CI on Node 22 ([#58](https://github.com/The-Vibe-Company/granite/issues/58)) ([d3b4091](https://github.com/The-Vibe-Company/granite/commit/d3b40913c3eb5e63dd84e558b2b143003dbb613a))
+* **release:** fall back to a token when OIDC publishing fails ([#61](https://github.com/The-Vibe-Company/granite/issues/61)) ([f82bc3e](https://github.com/The-Vibe-Company/granite/commit/f82bc3ea4788ad8610964fb68fb7c45577e2b1c4))
+* **release:** restore registry-url so npm can attempt trusted publishing ([#62](https://github.com/The-Vibe-Company/granite/issues/62)) ([cfd1c1f](https://github.com/The-Vibe-Company/granite/commit/cfd1c1f9da79e4640b71bff184db4c1a492232f2))
+
 ## [0.1.16](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.15...granite-mem-v0.1.16) (2026-09-20)
 
 
