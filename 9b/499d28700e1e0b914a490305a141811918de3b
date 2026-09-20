@@ -1,0 +1,18 @@
+shared/mcp-markdown.ts
+  h_ecee222750141d 841-961
+src/mcp/runtime.ts
+  h_ecee222750141d 17-18,562-615
+src/mcp/server.ts
+  h_ecee222750141d 20-21,88-89,274-298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9b499d28700e1e0b914a490305a141811918de3b",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
