@@ -4,12 +4,18 @@ import { ensureIndex } from '../core/index-db.js';
 import { searchNotes } from '../core/search.js';
 import { jsonSuccess } from '../core/json-output.js';
 
-export function searchCommand(query: string, options: { json?: boolean }): void {
+export function searchCommand(
+  query: string,
+  options: { json?: boolean; limit?: number; candidates?: number },
+): void {
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
   const db = ensureIndex(vaultRoot, config);
 
-  const results = searchNotes(db, query);
+  const results = searchNotes(db, query, {
+    limit: options.limit ?? 20,
+    candidateLimit: options.candidates,
+  });
   db.close();
 
   if (options.json) {

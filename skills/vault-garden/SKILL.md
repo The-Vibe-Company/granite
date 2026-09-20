@@ -78,6 +78,43 @@ granite recommend <slug> --json
 - If the orphan logically belongs as a source for an existing synthesis, add `derived_from`
 - If no connections make sense, the note might be too vague — enrich its body first, then try again
 
+`granite suggest-links` only matches notes named literally in the text. When that
+finds nothing but the note clearly belongs somewhere, ask for semantic
+judgments — this is optional and only runs if `TYPESAFE_API_KEY` is set:
+
+```bash
+python3 scripts/jev_judge.py candidates <slug> --limit 12
+python3 scripts/jev_judge.py judge <slug> --limit 12
+```
+
+Act on `verdict: link`; treat `verdict: review` as a candidate to inspect
+yourself and `skip` as noise. See
+[references/jev-semantic-layer.md](references/jev-semantic-layer.md) for the
+thresholds, cost model and calibration workflow. If the helper reports
+`status: unavailable`, no key is configured — continue with the deterministic
+commands above and do not treat it as a failure.
+
+### 3b. Merge near-duplicates
+
+Linking and merging are different questions: a synthesis and the entity note it
+compiles are a **good link and a bad merge** at the same time. Never use the link
+judgment above to decide that two notes are the same note.
+
+To get a ranked queue of likely duplicates:
+
+```bash
+python3 scripts/jev_judge.py duplicates --limit 20
+```
+
+`verdict: merge` means the pair should become one note; `review` means a human
+should look. Treat this as a queue, not an automatic merge: the merge classifier
+has no positive labels to validate against, so its confidence is not calibrated.
+Merge the useful parts first, then archive:
+
+```bash
+granite edit <slug> --status archived
+```
+
 ### 4. Enrich thin notes
 
 Notes with fewer than 3 outgoing wikilinks are under-connected. For each:

@@ -13,3 +13,7 @@ test-vault/.granite/index.db
 
 # NPM artifacts
 *.tgz
+
+# Python bytecode from optional skill helpers
+__pycache__/
+*.py[cod]

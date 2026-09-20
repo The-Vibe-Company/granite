@@ -5,7 +5,7 @@ import { findNoteBySlug } from '../core/note.js';
 import { suggestLinks } from '../core/suggest.js';
 import { jsonSuccess, jsonError } from '../core/json-output.js';
 
-export function suggestLinksCommand(slug: string, options: { json?: boolean }): void {
+export function suggestLinksCommand(slug: string, options: { json?: boolean; limit?: number }): void {
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
   const note = findNoteBySlug(vaultRoot, config, slug);
@@ -21,7 +21,7 @@ export function suggestLinksCommand(slug: string, options: { json?: boolean }): 
   const existingNote = note;
 
   const db = ensureIndex(vaultRoot, config);
-  const suggestions = suggestLinks(db, existingNote);
+  const suggestions = suggestLinks(db, existingNote, options.limit ?? 20);
   db.close();
 
   if (options.json) {
