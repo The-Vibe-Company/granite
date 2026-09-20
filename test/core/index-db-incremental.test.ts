@@ -136,4 +136,26 @@ describe('index-db incremental flows', () => {
 
     db.close();
   });
+
+  it('does not fail a completed note write when the persistent index is readonly', () => {
+    const dbDir = path.join(tmpDir, '.granite');
+    const dbPath = path.join(dbDir, 'index.db');
+    const db = createDatabase(dbPath);
+    rebuildIndex(tmpDir, config, db);
+    db.close();
+
+    const note = createNote(tmpDir, config, 'note', 'Readonly Index Note', 'Durable markdown write.\n');
+    const readonlyPaths = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`].filter(fs.existsSync);
+
+    try {
+      for (const file of readonlyPaths) fs.chmodSync(file, 0o444);
+      fs.chmodSync(dbDir, 0o555);
+
+      expect(() => syncVaultIndexAfterNoteWrite(tmpDir, config, note)).not.toThrow();
+      expect(fs.existsSync(note.filepath)).toBe(true);
+    } finally {
+      fs.chmodSync(dbDir, 0o755);
+      for (const file of readonlyPaths) fs.chmodSync(file, 0o644);
+    }
+  });
 });
