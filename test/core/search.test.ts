@@ -79,4 +79,31 @@ describe('searchNotes', () => {
     expect(results[0]?.type).toBe('note');
     db.close();
   });
+
+  it('widens the ranking pool beyond the returned limit', () => {
+    for (let i = 0; i < 6; i++) {
+      createNote(tmpDir, config, 'note', `Fermentation Study ${i}`, 'fermentation fermentation fermentation.\n');
+    }
+    createNote(tmpDir, config, 'note', 'Weak Match', 'a single mention of fermentation here.\n');
+
+    const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
+    rebuildIndex(tmpDir, config, db);
+
+    // A tight pool cannot see the weak match at all.
+    const narrow = searchNotes(db, 'fermentation', { limit: 2, candidateLimit: 2 });
+    expect(narrow).toHaveLength(2);
+
+    // A wide pool surfaces it, which is what a reranker needs in order to
+    // promote a relevant row that BM25 ranked below the final cut.
+    const poolRows = db.prepare(
+      `SELECT n.slug FROM notes_fts JOIN notes n ON n.rowid = notes_fts.rowid
+       WHERE notes_fts MATCH ? ORDER BY rank LIMIT ?`,
+    ).all('fermentation', 20) as Array<{ slug: string }>;
+
+    const widePool = searchNotes(db, 'fermentation', { limit: 2, candidateLimit: 20 });
+    expect(widePool).toHaveLength(2);
+    expect(poolRows.length).toBeGreaterThan(narrow.length);
+    expect(poolRows.map(r => r.slug)).toContain('weak-match');
+    db.close();
+  });
 });

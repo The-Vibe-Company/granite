@@ -133,7 +133,9 @@ program
   .description('Research a topic across the vault — use before creating to avoid duplicates')
   .argument('<query>', 'Search query')
   .option('--json', 'Output as JSON (agent-friendly)')
-  .action((query: string, options: { json?: boolean }) => {
+  .option('--limit <n>', 'Maximum results to return (default 20)', (v) => parseInt(v, 10))
+  .option('--candidates <n>', 'Size of the ranking pool before the final cut (widens recall for reranking)', (v) => parseInt(v, 10))
+  .action((query: string, options: { json?: boolean; limit?: number; candidates?: number }) => {
     searchCommand(query, options);
   });
 
@@ -179,7 +181,8 @@ program
   .description('Find unlinked mentions — strengthen the graph by adding missed [[wikilinks]]')
   .argument('<slug>', 'Note slug')
   .option('--json', 'Output as JSON (agent-friendly)')
-  .action((slug: string, options: { json?: boolean }) => {
+  .option('--limit <n>', 'Maximum suggestions to return (default 20)', (v) => parseInt(v, 10))
+  .action((slug: string, options: { json?: boolean; limit?: number }) => {
     suggestLinksCommand(slug, options);
   });
 
