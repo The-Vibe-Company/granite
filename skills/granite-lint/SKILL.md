@@ -67,6 +67,20 @@ Apply what makes sense:
 - Apply recommended tags
 - Create follow-up notes if recommend suggests them
 
+When lexical matching finds nothing for a note that clearly belongs somewhere,
+the optional semantic layer can help. It lives in `/vault-garden` — lint
+diagnoses, so route the fix there rather than duplicating the code:
+
+```bash
+granite suggest-links <slug> --json          # lexical only, no model, no key
+python3 ../vault-garden/scripts/jev_judge.py judge <slug> --limit 12
+```
+
+That helper judges **link-worthiness**, which is a different question from the
+near-duplicate detection in step 2. Do not use it to decide that two notes are
+the same note: a synthesis and the entity note it compiles are a good link and a
+bad merge at once. See `../vault-garden/references/jev-semantic-layer.md`.
+
 ### 5. Detect Compilation Opportunities
 
 Look for clusters of 3+ related `note` or `source` type notes that lack a unifying `synthesis`:
