@@ -1,0 +1,24 @@
+skills/vault-garden/scripts/jev_facts.py
+  h_ecee222750141d 114-182,218,222-223,225,255-274,306,316-317,323,328-329,335-352,369,614-615
+src/commands/facts.ts
+  h_ecee222750141d 1,11,16-19,79-100,105-148
+src/core/fact-writer.ts
+  h_ecee222750141d 1-256
+src/core/facts.ts
+  h_ecee222750141d 304-311,341-343
+src/index.ts
+  h_ecee222750141d 148-149,154
+test/core/fact-writer.test.ts
+  h_ecee222750141d 1-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3fb050b9f4f621bcdaab5cc32264d11246b46049",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
