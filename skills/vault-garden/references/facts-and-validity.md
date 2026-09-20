@@ -280,3 +280,62 @@ That is the surface the fact ledger addresses: with facts recorded, "what is cur
 about X" becomes answerable from declared validity rather than from which note
 happens to rank higher. It is not yet populated on this vault — the ledger is built
 and tested, and feeding it is the next step.
+
+## The autonomous path
+
+The point of the ledger is that a person should never have to curate it. A model
+proposes, Granite decides, and the ledger stays valid — with no human step.
+
+```bash
+# propose, then commit, in one pipeline
+python3 skills/vault-garden/scripts/jev_facts.py facts <slug> \
+  | granite facts --write --json
+
+# plan the writes without creating anything
+... | granite facts --write --dry-run
+```
+
+Three invariants are enforced in code rather than requested in a prompt, because
+measurement says a model cannot be trusted with them:
+
+1. **No provenance, no write.** A proposal without a source note and a verbatim span
+   is refused, and the asserted object must actually appear *inside* the span, so a
+   hallucinated value cannot be laundered through a real-looking quote. Write-gate
+   validation is a documented blind spot in every memory architecture surveyed.
+2. **Deterministic slugs**, derived from the fact's identity plus its source, so
+   applying the same proposal twice is a no-op. Idempotency is what makes re-running
+   a pipeline safe rather than duplicating the vault.
+3. **Additive and reversible.** The write path never retires a fact. A newer fact
+   wins under the ledger's recency rule and the older note stays in history. Every
+   applied run appends to `.granite/audit.jsonl`.
+
+Automatic retirement stays absent on purpose: it was measured wrong on 70% of facts
+across two independent corpora, so retiring remains an explicit action through the
+ledger.
+
+### Where this stands, honestly
+
+Verified end to end on a real 767-note vault: **11 proposals from 25 sentences**,
+piped into the ledger, **10 slugs planned and 0 refused**.
+
+But the triples are only as good as the candidate generation, and that went through
+three failures worth recording:
+
+| Generator | What it produced |
+| --- | --- |
+| Capitalised words as subjects | verbs and bare nouns: `Fonctionne`, `Flux`, `Déterminisme` |
+| Numbers/money as values | `Monka` as the object of a sentence about Monka |
+| Short word windows (current) | `Monka`, `Questionnaire initial`, `Flux utilisateur` as subjects — plus some loose ones like `Monka plateforme d` |
+
+The current approach walks every short contiguous word window deterministically and
+lets the model select, which is the skill's *select instead of generate* pattern and
+does produce usable subjects and values. It is still **structurally valid but
+semantically loose** in places, and the relation vocabulary currently carries the
+classifier's own labels (`capability_or_technology`) rather than clean domain
+relations.
+
+So: the machinery is sound and fully tested, and the extraction is not yet good
+enough to auto-apply to a vault whose owner will not read it. **Measure precision on
+a labelled sample before enabling `--write` on a real vault.** Targeted extraction on
+structured content (pricing, dates, counts, contract terms) is the natural place to
+start, because there the value is verifiable rather than interpretive.
