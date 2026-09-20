@@ -1,0 +1,26 @@
+.gitignore
+  h_ecee222750141d 16-19
+skills/granite-lint/SKILL.md
+  h_ecee222750141d 70-83
+skills/vault-garden/SKILL.md
+  h_ecee222750141d 81-117
+skills/vault-garden/references/jev-semantic-layer.md
+  h_ecee222750141d 1-245
+skills/vault-garden/scripts/calibrate_thresholds.py
+  h_ecee222750141d 1-304
+skills/vault-garden/scripts/jev_judge.py
+  h_ecee222750141d 1-817
+skills/vault-garden/scripts/measure_neighbor_context.py
+  h_ecee222750141d 1-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ec631178da0b52f4a817f87669007845ed71b123",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
