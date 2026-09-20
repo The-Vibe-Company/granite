@@ -140,3 +140,57 @@ data rather than intuition.
   Automating that is the obvious next step, and it should be done with a write-gate
   that refuses a fact with no source, since write-gate validation is a documented
   blind spot in every memory architecture surveyed.
+
+## Entity alignment
+
+The same thing is often recorded twice under different names, which fragments the
+graph: two records of one entity never link to each other, and a query finds one
+and misses the other. Granite splits this the same way as everything else —
+**code finds candidates, the model judges only what code cannot, and nothing is
+merged.**
+
+```bash
+granite entities                 # candidates, and what is safe to apply
+granite entities --review        # only what needs a human decision
+granite entities --type person   # restrict to one type
+python3 jev_facts.py align       # judge cross-type candidates with Jev
+```
+
+Candidate detection is deterministic and uses no similarity threshold, because a
+fuzzy score would need per-corpus calibration and would admit the over-generation
+that ruins model-based extraction. Two signals only:
+
+- two notes whose **folded titles are identical** (case, accents, punctuation and
+  spacing ignored);
+- an **alias claimed by more than one note**.
+
+Folding is applied to the title as written, so a title stored as
+`[[Agence France-Presse (AFP)]]` still compares as `agence france presse afp`.
+
+### Measured on a real 767-note vault
+
+| Signal | Pairs |
+| --- | --- |
+| Alignment candidates | 8 |
+| Same normalised title | 4 |
+| Shared alias | 4 |
+| Cross-type | 1 |
+| Safe to apply as an alias | 4 |
+| Held for a human decision | 4 |
+
+The four held-back pairs are exactly the four duplicate-title groups in the vault,
+including the cross-type case: `agence-france-presse-afp` (organization) and
+`agence-france-presse-afp-2` (person). Jev judged that pair **`same`** entity for
+435 tokens — but Granite still does not act on it, because folding a person record
+into an organization record is a modelling decision rather than a dedupe.
+
+### What is planned versus applied
+
+- **Planned (reversible):** a same-type shared alias becomes an alias edge on the
+  note with the shorter title. Nothing is rewritten; the note keeps its body.
+- **Surfaced only:** identical same-type titles, because one of the two is usually a
+  genuine duplicate whose *body* should be merged — an alias would hide that.
+- **Surfaced only:** cross-type matches, for the reason above.
+
+Granite plans; a person or agent applies. Adding an alias is reversible, merging two
+notes is not.

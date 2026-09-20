@@ -64,6 +64,15 @@ CONFLICT_LEVELS = [
 ]
 CONFLICT_OUTCOME = {0: "unrelated", 1: "compatible", 2: "conflict"}
 
+# Entity identity. Levels are the action, so rounding to the nearest level is the
+# decision rule rather than a fitted threshold.
+IDENTITY_LEVELS = [
+    "Different entities: two distinct real-world things that happen to share a name.",
+    "Related: one is a variant, subsidiary, alias or partial reference to the other.",
+    "The same entity: both describe one and the same real-world thing.",
+]
+IDENTITY_OUTCOME = {0: "different", 1: "related", 2: "same"}
+
 # Facts are extracted per candidate sentence, so the model only classifies text
 # that deterministic code already selected. This keeps recall in code.
 SUMMARY_CRITERIA = [
@@ -325,6 +334,132 @@ def conflicts(api_key: str, args: argparse.Namespace, vault: Path) -> int:
     return 0
 
 
+def align(api_key: str, args: argparse.Namespace, vault: Path) -> int:
+    """Judge entity-identity candidates that code detects but cannot decide.
+
+    Deterministic detection (identical folded titles, shared aliases) is Granite's
+    job. This answers only the part code cannot: are these the *same thing*? It
+    reports; it never merges or rewrites anything.
+    """
+    con = sqlite3.connect(f"file:{granite_db(vault)}?mode=ro", uri=True)
+    try:
+        rows = con.execute("SELECT slug, title, type, aliases FROM notes").fetchall()
+    finally:
+        con.close()
+
+    def clean_title(value: str) -> str:
+        # Some notes store a wikilink as the title ("[[Agence France-Presse (AFP)]]").
+        # Strip the brackets so the name compared is the name a reader sees.
+        text = (value or "").strip()
+        text = re.sub(r"^\[\[", "", text)
+        text = re.sub(r"\]\]$", "", text)
+        return text.split("|")[-1].strip()
+
+    def norm(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", clean_title(value).lower()).strip()
+
+    entities = []
+    for slug, title, ntype, aliases in rows:
+        try:
+            alias_list = json.loads(aliases or "[]")
+        except json.JSONDecodeError:
+            alias_list = []
+        entities.append({"slug": slug, "title": clean_title(title), "type": ntype,
+                         "aliases": [clean_title(str(a)) for a in alias_list]})
+
+    # The same deterministic candidate signals Granite uses, so the two agree.
+    by_title: dict[str, list[dict[str, Any]]] = {}
+    by_alias: dict[str, list[dict[str, Any]]] = {}
+    for entity in entities:
+        key = norm(entity["title"])
+        if key:
+            by_title.setdefault(key, []).append(entity)
+        own = set()
+        for alias in [entity["title"], *entity["aliases"]]:
+            alias_key = norm(alias)
+            if not alias_key or alias_key in own:
+                continue
+            own.add(alias_key)
+            by_alias.setdefault(alias_key, []).append(entity)
+
+    pairs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for key, bucket in list(by_title.items()) + list(by_alias.items()):
+        distinct = list({e["slug"]: e for e in bucket}.values())
+        for i in range(len(distinct)):
+            for j in range(i + 1, len(distinct)):
+                pair_key = "\u0000".join(sorted([distinct[i]["slug"], distinct[j]["slug"]]))
+                if pair_key in seen:
+                    continue
+                seen.add(pair_key)
+                pairs.append({"a": distinct[i], "b": distinct[j], "matched_on": key})
+
+    # Only cross-type cases need a model. Same-type identical titles are true
+    # duplicates for a human to merge; same-type shared aliases are safe to alias
+    # mechanically. Granite's planAlignment draws the same line.
+    to_judge = [p for p in pairs if p["a"]["type"] != p["b"]["type"]][: args.limit]
+
+    if not to_judge:
+        print(json.dumps({
+            "status": "ok",
+            "deterministic_candidates": len(pairs),
+            "judged": 0,
+            "note_detail": "no cross-type candidates need a judgement",
+        }, indent=2, sort_keys=True))
+        return 0
+
+    questions: dict[str, Any] = {}
+    for index, _pair in enumerate(to_judge):
+        questions[f"id::{index}"] = {
+            "type": "score",
+            "instructions": (
+                "Do entity_a and entity_b describe the same real-world thing? They may "
+                f"have different record types. Judge only candidate_pairs[index={index}]."
+            ),
+            "criteria": IDENTITY_LEVELS,
+        }
+
+    response = post_questions(
+        api_key, args.model,
+        {"candidate_pairs": [
+            {"index": index,
+             "entity_a": {"name": p["a"]["title"], "type": p["a"]["type"]},
+             "entity_b": {"name": p["b"]["title"], "type": p["b"]["type"]}}
+            for index, p in enumerate(to_judge)
+        ]},
+        questions,
+    )
+    answers = response.get("answers", {})
+
+    results = []
+    for index, pair in enumerate(to_judge):
+        answer = answers.get(f"id::{index}", {})
+        score = float(answer.get("score", 0.0))
+        level = min(int(score + 0.5), len(IDENTITY_LEVELS) - 1)
+        results.append({
+            "verdict": IDENTITY_OUTCOME[level],
+            "score": round(score, 2),
+            "matched_on": pair["matched_on"],
+            "a": {"slug": pair["a"]["slug"], "title": pair["a"]["title"], "type": pair["a"]["type"]},
+            "b": {"slug": pair["b"]["slug"], "title": pair["b"]["title"], "type": pair["b"]["type"]},
+        })
+    results.sort(key=lambda r: (-r["score"], r["a"]["slug"]))
+
+    print(json.dumps({
+        "status": "ok",
+        "model": response.get("model", args.model),
+        "usage": response.get("usage", {}),
+        "deterministic_candidates": len(pairs),
+        "judged": len(to_judge),
+        "results": results,
+        "note_detail": (
+            "Advisory only. Nothing merged, nothing rewritten. Folding records across "
+            "types is a modelling decision, so this reports and stops."
+        ),
+    }, indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -332,8 +467,8 @@ def main(argv: list[str]) -> int:
             "Proposals only: this never writes to the vault."
         ),
     )
-    parser.add_argument("command", choices=["facts", "conflicts"])
-    parser.add_argument("slug")
+    parser.add_argument("command", choices=["facts", "conflicts", "align"])
+    parser.add_argument("slug", nargs="?", help="required for facts and conflicts")
     parser.add_argument("--limit", type=int, default=8, help="notes to compare against (conflicts)")
     parser.add_argument("--candidates", type=int, default=40, help="sentences to consider (facts)")
     # Measured on a real vault: assertion scores occupy a compressed range
@@ -365,6 +500,8 @@ def main(argv: list[str]) -> int:
 
     if args.command == "facts":
         return extract(api_key, args, vault)
+    if args.command == "align":
+        return align(api_key, args, vault)
     return conflicts(api_key, args, vault)
 
 
