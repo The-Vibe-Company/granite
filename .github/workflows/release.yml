@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           package-manager-cache: false
 
       - name: Install dependencies
@@ -73,7 +73,7 @@ jobs:
         run: |
           rm -f "${NPM_CONFIG_USERCONFIG:-}"
           unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
-          npm publish
+          npm publish --provenance
 
   publish-current:
     if: github.event_name == 'workflow_dispatch'
@@ -86,7 +86,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           package-manager-cache: false
 
       - name: Install dependencies
@@ -122,4 +122,4 @@ jobs:
         run: |
           rm -f "${NPM_CONFIG_USERCONFIG:-}"
           unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
-          npm publish
+          npm publish --provenance
