@@ -1,0 +1,20 @@
+src/commands/facts.ts
+  h_ecee222750141d 1-139
+src/core/facts.ts
+  h_ecee222750141d 1-338
+src/index.ts
+  h_ecee222750141d 8,143-154
+test/core/facts.test.ts
+  h_ecee222750141d 1-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "efa8f3b9e4ea7d086aad37e171dca33e89752380",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
