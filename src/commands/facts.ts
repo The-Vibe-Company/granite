@@ -35,8 +35,19 @@ function renderLedger(ledger: FactLedger): void {
   if (current.length === 0 && ledger.entries.length === 0) {
     console.log('No facts yet.');
     console.log('');
-    console.log('A fact is a note of type "fact" asserting subject / relation / object:');
-    console.log('  granite new "Monka runs on Scaleway" --type fact');
+    // Facts are detected by the fields they declare, not by a note type, so the
+    // guidance must not tell people to use a type that does not exist.
+    console.log('A fact is any note whose frontmatter declares these fields:');
+    console.log('  subject, relation, object, valid_from');
+    console.log('plus optional valid_to, confidence and source_note.');
+    console.log('');
+    console.log('For example, in a note about Monka:');
+    console.log('  subject: Monka');
+    console.log('  relation: hosting');
+    console.log('  object: Scaleway');
+    console.log('  valid_from: 2026-06-01');
+    console.log('');
+    console.log('No new note type is required, so an existing vault needs no config change.');
     return;
   }
 
