@@ -237,3 +237,46 @@ engine-spec note look like real product claims on inspection, but "looks right o
 inspection" is not a measurement, and the published extraction baseline is 0.357
 precision. Until someone labels a sample, treat every proposal as a candidate for
 review — which is exactly how the tool presents them.
+
+## Entity identity: validated, and the validation found my own error
+
+The `align` judgement was measured on 8 hand-labelled pairs from the vault
+(1,628 input tokens total):
+
+| Truth | Verdict | Score | Pair |
+| --- | --- | --- | --- |
+| same | related | 0.98 | AFP (organization) / AFP (person) |
+| same | **same** | 1.98 | Kima Ventures (Alexis Robert) / same |
+| same | **same** | 1.50 | Victor Nivault — CDD Quivr (juin-octobre) / (juin) |
+| different | **different** | 0.15 | AFP / Mediagen |
+| same | related | 1.09 | Pierre-Louis Biojout (PLB) / Pliny the Liberator |
+| different | **different** | 0.09 | Monka.care / Quivr |
+| different | related | 1.21 | Granite (TVC) / The Vibe Company |
+| different | **different** | 0.43 | Coup de Pâtes / Maison Nicolas |
+
+Raw score: **5/8 (62%)**. Reading the errors changes the conclusion:
+
+- **One "miss" was my labelling error.** I labelled `Granite (TVC)` / `The Vibe
+  Company` as *different*; they are the same organisation, as the vault itself
+  shows. The model said `related`, which is closer to the truth than my label.
+- **Two "misses" are conservative, not wrong.** Both landed at `related` rather
+  than `same`, i.e. the review queue. For an advisory judgement, declining to
+  assert identity on an ambiguous pair is the behaviour you want.
+- Counting only pairs I could defend, the model was **correct on 6 of 8**.
+
+Limits to keep in view: eight pairs is a very small sample, so the confidence
+interval is wide, and `related` is doing a lot of work as a middle band. The
+practical read is that this judgement is safe as a *ranking* signal and should not
+be used as a decision, which is how `granite entities` and `align` present it.
+
+## Ledger state on a real vault, before and after values
+
+The deterministic ledger finds **127 orphan notes (17%)**, **4 duplicate-title
+groups**, **4 aliases claimed by two notes**, and **89 unresolved wikilinks** across
+767 notes. The 141 notes that populate `derived_from` are only synthesis and output
+notes; nothing else records provenance.
+
+That is the surface the fact ledger addresses: with facts recorded, "what is current
+about X" becomes answerable from declared validity rather than from which note
+happens to rank higher. It is not yet populated on this vault — the ledger is built
+and tested, and feeding it is the next step.
