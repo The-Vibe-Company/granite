@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.14...granite-mem-v0.1.15) (2026-09-20)
+
+
+### Bug Fixes
+
+* **suggest:** whole-word matching, rerank-ready search, and an optional measured Jev layer ([#54](https://github.com/The-Vibe-Company/granite/issues/54)) ([aaac172](https://github.com/The-Vibe-Company/granite/commit/aaac172b2827107e08e7c96fefbf47ff2ed2df2c))
+
 ## [0.1.14](https://github.com/The-Vibe-Company/Granite/compare/granite-mem-v0.1.13...granite-mem-v0.1.14) (2026-07-21)
 
 

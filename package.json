@@ -1,6 +1,6 @@
 {
   "name": "granite-mem",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Local-first markdown memory system for humans and AI agents: MCP server, typed knowledge graph, deterministic garden planning.",
   "type": "module",
   "bin": {
