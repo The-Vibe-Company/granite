@@ -1,0 +1,16 @@
+skills/vault-garden/references/facts-and-validity.md
+  h_ecee222750141d 408-455
+skills/vault-garden/scripts/jev_facts.py
+  h_ecee222750141d 190-194,211-212,792-796,798-815,857-858,869-875,885-890
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "39ee173da01fa9a441c096f6f619b88b6101e2b0",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
