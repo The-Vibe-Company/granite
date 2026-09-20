@@ -68,11 +68,36 @@ jobs:
             echo "Publishing ${name}@${version}"
           fi
 
-      - name: Publish to npm
-        if: steps.package.outputs.publish == 'true'
+      - name: Publish to npm (trusted publishing)
+        id: publish_oidc
+        if: steps.package.outputs.publish == 'true' && env.NPM_TOKEN == ''
+        continue-on-error: true
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           rm -f "${NPM_CONFIG_USERCONFIG:-}"
           unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
+          echo "attempting OIDC trusted publishing as $(npm --version)"
+          npm publish --provenance
+
+      - name: Publish to npm (token fallback)
+        # Trusted publishing is the intended path, but the OIDC exchange currently
+        # fails with ENEEDAUTH before any token is presented. Rather than block
+        # releases on that, fall back to a token when one is configured.
+        if: >-
+          steps.package.outputs.publish == 'true' &&
+          (env.NPM_TOKEN != '' || steps.publish_oidc.outcome == 'failure')
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          rm -f "${NPM_CONFIG_USERCONFIG:-}"
+          if [ -z "${NPM_TOKEN}" ]; then
+            echo "::error::OIDC trusted publishing failed and no NPM_TOKEN secret is set."
+            echo "Add an npm automation token as the NPM_TOKEN repository secret, or fix"
+            echo "the trusted publisher configuration on npmjs.com."
+            exit 1
+          fi
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "$HOME/.npmrc"
           npm publish --provenance
 
   publish-current:
@@ -117,9 +142,34 @@ jobs:
             echo "Publishing ${name}@${version}"
           fi
 
-      - name: Publish to npm
-        if: steps.package.outputs.publish == 'true'
+      - name: Publish to npm (trusted publishing)
+        id: publish_oidc
+        if: steps.package.outputs.publish == 'true' && env.NPM_TOKEN == ''
+        continue-on-error: true
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           rm -f "${NPM_CONFIG_USERCONFIG:-}"
           unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
+          echo "attempting OIDC trusted publishing as $(npm --version)"
+          npm publish --provenance
+
+      - name: Publish to npm (token fallback)
+        # Trusted publishing is the intended path, but the OIDC exchange currently
+        # fails with ENEEDAUTH before any token is presented. Rather than block
+        # releases on that, fall back to a token when one is configured.
+        if: >-
+          steps.package.outputs.publish == 'true' &&
+          (env.NPM_TOKEN != '' || steps.publish_oidc.outcome == 'failure')
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          rm -f "${NPM_CONFIG_USERCONFIG:-}"
+          if [ -z "${NPM_TOKEN}" ]; then
+            echo "::error::OIDC trusted publishing failed and no NPM_TOKEN secret is set."
+            echo "Add an npm automation token as the NPM_TOKEN repository secret, or fix"
+            echo "the trusted publisher configuration on npmjs.com."
+            exit 1
+          fi
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "$HOME/.npmrc"
           npm publish --provenance
