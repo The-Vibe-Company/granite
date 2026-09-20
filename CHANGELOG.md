@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.20](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.19...granite-mem-v0.1.20) (2026-09-20)
+
+
+### Features
+
+* **mcp:** expose the fact ledger and entity alignment as MCP tools ([#69](https://github.com/The-Vibe-Company/granite/issues/69)) ([3e2fb21](https://github.com/The-Vibe-Company/granite/commit/3e2fb21b3e49c3a6bd9486f13f742b051a71a559))
+
+
+### Bug Fixes
+
+* **facts:** correct the help text shown when the ledger is empty ([#67](https://github.com/The-Vibe-Company/granite/issues/67)) ([f8f4b41](https://github.com/The-Vibe-Company/granite/commit/f8f4b4161e1d6bd1a2ecbbbf7804775af9fc13ad))
+
 ## [0.1.19](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.18...granite-mem-v0.1.19) (2026-09-20)
 
 
