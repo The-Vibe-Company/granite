@@ -77,10 +77,17 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           unset NODE_AUTH_TOKEN
-          echo "npm $(npm --version); registry config:"
-          npm config get registry
+          echo "npm $(npm --version); registry: $(npm config get registry)"
           echo "attempting OIDC trusted publishing"
           npm publish --provenance
+
+      - name: Report the OIDC outcome
+        # continue-on-error reports a failed step as `success`, so the real result is
+        # read from `outcome`. Without this the job summary claimed the publish had
+        # succeeded while npm had rejected it.
+        if: steps.package.outputs.publish == 'true' && steps.publish_oidc.outcome != 'success'
+        run: |
+          echo "::warning::OIDC trusted publishing did not succeed (outcome: ${{ steps.publish_oidc.outcome }})." 
 
       - name: Publish to npm (token fallback)
         # Trusted publishing is the intended path. This only runs when it failed, and
@@ -152,10 +159,17 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           unset NODE_AUTH_TOKEN
-          echo "npm $(npm --version); registry config:"
-          npm config get registry
+          echo "npm $(npm --version); registry: $(npm config get registry)"
           echo "attempting OIDC trusted publishing"
           npm publish --provenance
+
+      - name: Report the OIDC outcome
+        # continue-on-error reports a failed step as `success`, so the real result is
+        # read from `outcome`. Without this the job summary claimed the publish had
+        # succeeded while npm had rejected it.
+        if: steps.package.outputs.publish == 'true' && steps.publish_oidc.outcome != 'success'
+        run: |
+          echo "::warning::OIDC trusted publishing did not succeed (outcome: ${{ steps.publish_oidc.outcome }})." 
 
       - name: Publish to npm (token fallback)
         # Trusted publishing is the intended path. This only runs when it failed, and
