@@ -5,6 +5,8 @@ import { addNote } from './commands/add.js';
 import { openNote } from './commands/open.js';
 import { showCommand } from './commands/show.js';
 import { searchCommand } from './commands/search.js';
+import { factsCommand } from './commands/facts.js';
+import { entitiesCommand } from './commands/entities.js';
 import { backlinksCommand } from './commands/backlinks.js';
 import { suggestLinksCommand } from './commands/suggest-links.js';
 import { recommendCommand } from './commands/recommend.js';
@@ -137,6 +139,34 @@ program
   .option('--candidates <n>', 'Size of the ranking pool before the final cut (widens recall for reranking)', (v) => parseInt(v, 10))
   .action((query: string, options: { json?: boolean; limit?: number; candidates?: number }) => {
     searchCommand(query, options);
+  });
+
+program
+  .command('facts')
+  .description('Read the fact ledger — current state, retirements and contradictions')
+  .option('--json', 'Output as JSON (agent-friendly)')
+  .option('--write', 'Read fact proposals as JSON on stdin and commit the ones that pass')
+  .option('--dry-run', 'With --write, plan the writes without creating anything')
+  .option('--contradictions', 'Only report facts that disagree')
+  .option('--superseded', 'Only report facts retired by the recency rule')
+  .option('--subject <name>', 'Current state of one subject')
+  .option('--relation <name>', 'Narrow --subject to one relation')
+  .action((options: { json?: boolean; write?: boolean; dryRun?: boolean; contradictions?: boolean; superseded?: boolean; subject?: string; relation?: string }) => {
+    factsCommand(options);
+  });
+
+program
+  .command('entities')
+  .description('Find notes that may describe the same thing — candidates, never auto-merged')
+  .option('--json', 'Output as JSON (agent-friendly)')
+  .option('--review', 'Only show candidates that need a human decision')
+  .option('--type <types>', 'Restrict to comma-separated note types')
+  .action((options: { json?: boolean; review?: boolean; type?: string }) => {
+    entitiesCommand({
+      json: options.json,
+      review: options.review,
+      types: options.type ? options.type.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+    });
   });
 
 // ─── Compile ──────────────────────────────────────────────────────────

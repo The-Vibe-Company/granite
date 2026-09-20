@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createDatabase, rebuildIndex } from '../../src/core/index-db.js';
+import { createDatabase, ensureIndex, rebuildIndex } from '../../src/core/index-db.js';
 import { createNote } from '../../src/core/note.js';
 import { writeDefaultConfig, loadConfig } from '../../src/core/config.js';
 import { searchNotes } from '../../src/core/search.js';
@@ -103,5 +103,35 @@ describe('index-db', () => {
     expect(links[0].target_raw).toBe('Nonexistent');
 
     db.close();
+  });
+
+  it('falls back to a transient rebuilt index when the persisted index is readonly', () => {
+    createNote(tmpDir, config, 'note', 'Note A', 'Target.\n');
+
+    const dbDir = path.join(tmpDir, '.granite');
+    const dbPath = path.join(dbDir, 'index.db');
+    const db = createDatabase(dbPath);
+    rebuildIndex(tmpDir, config, db);
+    db.close();
+
+    createNote(tmpDir, config, 'note', 'Note B', 'Links to [[Note A]].\n');
+
+    const readonlyPaths = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`].filter(fs.existsSync);
+    try {
+      for (const file of readonlyPaths) fs.chmodSync(file, 0o444);
+      fs.chmodSync(dbDir, 0o555);
+
+      const rebuilt = ensureIndex(tmpDir, config);
+      const count = rebuilt.prepare('SELECT COUNT(*) as c FROM notes').get() as { c: number };
+      const backlinks = getBacklinks(rebuilt, 'note-a');
+
+      expect(count.c).toBe(2);
+      expect(backlinks.map(link => link.source_slug)).toContain('note-b');
+
+      rebuilt.close();
+    } finally {
+      fs.chmodSync(dbDir, 0o755);
+      for (const file of readonlyPaths) fs.chmodSync(file, 0o644);
+    }
   });
 });

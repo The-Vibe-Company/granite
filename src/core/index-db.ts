@@ -88,6 +88,14 @@ export function createDatabase(dbPath: string): Database.Database {
   return db;
 }
 
+function createTransientDatabase(): Database.Database {
+  const db = new Database(':memory:');
+  db.pragma('busy_timeout = 5000');
+  db.exec(SCHEMA_SQL);
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run('schema_version', String(SCHEMA_VERSION));
+  return db;
+}
+
 export function openDatabase(vaultRoot: string): Database.Database {
   const dbPath = getIndexDbPath(vaultRoot);
   if (!fs.existsSync(dbPath)) {
@@ -211,9 +219,10 @@ export function syncVaultIndexAfterNoteWrite(
   note: Note,
   options: { rebuild?: boolean } = {},
 ): void {
-  const db = openDatabase(vaultRoot);
+  let db: Database.Database | undefined;
 
   try {
+    db = openDatabase(vaultRoot);
     const noteExists = db.prepare('SELECT 1 FROM notes WHERE slug = ?').get(note.slug) as { 1: number } | undefined;
 
     if (options.rebuild || !noteExists) {
@@ -222,19 +231,45 @@ export function syncVaultIndexAfterNoteWrite(
     }
 
     syncNoteInIndex(vaultRoot, config, db, note);
+  } catch (error) {
+    if (isSqliteReadonlyError(error)) {
+      // The markdown note write already happened. In sandboxed automation runs the
+      // persistent SQLite index may be read-only, so leave it to the next read to
+      // build a transient index instead of failing the user-visible write command.
+      return;
+    }
+    throw error;
   } finally {
-    db.close();
+    db?.close();
   }
 }
 
 export function ensureIndex(vaultRoot: string, config: GraniteConfig): Database.Database {
-  const db = openDatabase(vaultRoot);
+  let db: Database.Database | undefined;
 
-  if (config.index.auto_rebuild) {
-    rebuildIndex(vaultRoot, config, db);
+  try {
+    db = openDatabase(vaultRoot);
+
+    if (config.index.auto_rebuild) {
+      rebuildIndex(vaultRoot, config, db);
+    }
+
+    return db;
+  } catch (error) {
+    db?.close();
+    if (!isSqliteReadonlyError(error)) {
+      throw error;
+    }
+
+    const transientDb = createTransientDatabase();
+    try {
+      rebuildIndex(vaultRoot, config, transientDb);
+      return transientDb;
+    } catch (transientError) {
+      transientDb.close();
+      throw transientError;
+    }
   }
-
-  return db;
 }
 
 function countNoteFiles(vaultRoot: string, config: GraniteConfig): number {
@@ -375,4 +410,11 @@ function resolveLinkTarget(db: Database.Database, target: string): string | null
   }
 
   return null;
+}
+
+function isSqliteReadonlyError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
+  const message = 'message' in error ? String((error as { message?: unknown }).message) : '';
+  return code === 'SQLITE_READONLY' || message.includes('readonly database');
 }
