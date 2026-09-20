@@ -1,0 +1,18 @@
+.gitignore
+  h_ecee222750141d 20-23
+skills/vault-garden/references/facts-and-validity.md
+  h_ecee222750141d 1-142
+skills/vault-garden/scripts/jev_facts.py
+  h_ecee222750141d 1-372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5bfc64b7ec959063ea7cc949044dc7c80b04df65",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
