@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.17...granite-mem-v0.1.18) (2026-09-20)
+
+
+### Bug Fixes
+
+* **release:** do not report a failed publish as success ([#63](https://github.com/The-Vibe-Company/granite/issues/63)) ([3a4f467](https://github.com/The-Vibe-Company/granite/commit/3a4f467bdcc63b7692db7e023d881067c9136a44))
+
 ## [0.1.17](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.16...granite-mem-v0.1.17) (2026-09-20)
 
 
