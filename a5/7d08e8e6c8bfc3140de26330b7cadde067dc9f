@@ -1,0 +1,18 @@
+.github/workflows/release.yml
+  h_ecee222750141d 40,89
+package-lock.json
+  h_ecee222750141d 15,1899-1901,1904-1907,1914,1996,3630,3713,4624,4706-4709,4712,5231,5408,5448,5686
+package.json
+  h_ecee222750141d 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a57d08e8e6c8bfc3140de26330b7cadde067dc9f",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
