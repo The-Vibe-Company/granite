@@ -194,3 +194,46 @@ into an organization record is a modelling decision rather than a dedupe.
 
 Granite plans; a person or agent applies. Adding an alias is reversible, merging two
 notes is not.
+
+## Measured yield and cost on the real vault
+
+Extraction run with `--candidates 25` on real notes (model `jev-1.13.0`, input
+tokens only — output is free at $0.042/Mtok):
+
+| Note | Sentences | Proposed | Input tokens |
+| --- | --- | --- | --- |
+| monka-ssot-v1-0 engine spec | 25 | 22 → **17** after the gate | 16,541 |
+| monka-prev-care ressources | 25 | 16 | 17,063 |
+| monka-prev-care OCR | 25 | 8 | 16,297 |
+| monka-prev-care OCR (second) | 25 | 8 | 16,297 |
+| cubic-cli prompts | 4 | 3 | 2,833 |
+
+Roughly **11,900 input tokens per note**, so classifying all 767 notes costs about
+**$0.38**, and the 278 notes that already have a *Key Facts* section about
+**$0.14**. Cost is not the constraint here; precision is.
+
+### A precision bug the gate now catches
+
+The first gate scored **22 of 25** sentences as facts, including statements *about
+the corpus* rather than the world:
+
+- "This document is the canonical engine spec."
+- "Reçu le 2026-04-16 via Mael Yang (fwd d'Antonin du 2026-04-15)"
+- "Visuel long : https://monka-tuto-moteur.vercel.app/"
+
+Those are provenance and layout, and frontmatter already holds them. Adding a
+separate world-claim question removed all five such cases and left assertions of the
+kind the ledger wants — "MVP ships 2026-05-10", "319 règles", "150 Q",
+"73 catégories d'action clinique".
+
+This is the same lesson as the threshold: **two different questions were being
+scored by one number.** Splitting "is this an assertion" from "is this a claim about
+the world" is what fixed it, not moving the threshold.
+
+### What remains unmeasured
+
+Precision is still **not validated against human labels**. The 17 proposals on the
+engine-spec note look like real product claims on inspection, but "looks right on
+inspection" is not a measurement, and the published extraction baseline is 0.357
+precision. Until someone labels a sample, treat every proposal as a candidate for
+review — which is exactly how the tool presents them.

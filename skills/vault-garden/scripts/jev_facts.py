@@ -98,6 +98,11 @@ def sentences(body: str, limit: int) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for index, raw in enumerate(parts):
         line = raw.strip().lstrip("-* ").strip()
+        # Strip inline markdown so the proposed span reads as prose rather than
+        # carrying bold markers and table pipes into the ledger.
+        line = re.sub(r"\*\*|__|`", "", line)
+        line = re.sub(r"^\|", "", line).replace(" | ", " — ").strip(" |")
+        line = re.sub(r"\s{2,}", " ", line).strip()
         if len(line) < 25 or len(line) > 400:
             continue
         if not re.search(r"[A-Za-zÀ-ÿ]{3,}", line):
@@ -113,10 +118,32 @@ def build_extraction_questions(candidates: list[dict[str, Any]]) -> dict[str, An
         questions[f"is_fact::{cid}"] = {
             "type": "score",
             "instructions": (
-                f"Is candidate_sentences[id={cid}] a factual assertion about a "
-                "specific entity and a specific attribute of it?"
+                f"Does candidate_sentences[id={cid}] assert something about the world "
+                "that should still be checkable later? Judge only that sentence."
             ),
             "criteria": SUMMARY_CRITERIA,
+        }
+        # Separated on purpose. The first version of this gate scored meta-statements
+        # highly and proposed "This document is the canonical engine spec" and
+        # "Reçu le 2026-04-16 via Mael Yang" as world facts, which would pollute the
+        # ledger with corpus bookkeeping that frontmatter already holds.
+        questions[f"is_world_claim::{cid}"] = {
+            "type": "noul",
+            "instructions": (
+                f"Does candidate_sentences[id={cid}] assert a fact about the world, rather "
+                "than about the document itself, its provenance, or a link?"
+            ),
+            "criteria": {
+                "true": (
+                    "It states something about an entity, project, product, person, "
+                    "organisation, contract or event — a claim that stays checkable."
+                ),
+                "false": (
+                    "It describes the document (its title, version, purpose, structure, "
+                    "layout), how or when the document was received, who sent it, or it is "
+                    "only a URL or a table row label."
+                ),
+            },
         }
         # Extraction is a *selection* from the given text, so ask for the parts by
         # name and keep the original span verbatim for traceability.
@@ -210,11 +237,14 @@ def extract(api_key: str, args: argparse.Namespace, vault: Path) -> int:
             "relation_kind": answers.get(f"relation::{cid}", {}).get("choice"),
             "value_kind": value_kind,
             "date_kind": answers.get(f"when::{cid}", {}).get("choice"),
+            "world_claim": round(float(answers.get(f"is_world_claim::{cid}", {}).get("noul", 0.0)), 2),
         }
         # Only surface candidates the model actually scored as assertions, and only
         # when the value can be copied verbatim. An inferred value is exactly the
         # low-precision case the extraction numbers warn about.
-        if score >= args.min_score and subject == "named_entity" and value_kind == "explicit":
+        is_world_claim = float(answers.get(f"is_world_claim::{cid}", {}).get("noul", 0.0))
+        if (score >= args.min_score and subject == "named_entity"
+                and value_kind == "explicit" and is_world_claim >= args.min_world_claim):
             proposed.append(entry)
         else:
             rejected.append(entry)
@@ -230,7 +260,8 @@ def extract(api_key: str, args: argparse.Namespace, vault: Path) -> int:
         "facts": proposed,
         "rejected_detail": [
             {"span": r["span"][:110], "score": r["is_fact_score"],
-             "why": "not a specific assertion" if r["subject_kind"] != "named_entity"
+             "why": "meta/provenance, not a world claim" if r.get("world_claim", 1.0) < args.min_world_claim
+                    else "not a specific assertion" if r["subject_kind"] != "named_entity"
                     else "value not verbatim" if r["value_kind"] != "explicit"
                     else "below score threshold"}
             for r in rejected
@@ -475,6 +506,8 @@ def main(argv: list[str]) -> int:
     # (roughly 0.0-2.0, not 0-3), so a "high" gate rejects everything. Real
     # assertions landed at 1.7-2.0 while action items and plans landed at 0.03-0.10,
     # so the useful cut is near the middle, not the top. Re-measure per corpus.
+    parser.add_argument("--min-world-claim", type=float, default=0.5,
+                        help="minimum probability that the sentence is a world claim, not document bookkeeping")
     parser.add_argument("--min-score", type=float, default=1.4,
                         help="minimum assertion score; scores are compressed, see docs")
     parser.add_argument("--max-chars", type=int, default=900)
