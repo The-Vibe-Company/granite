@@ -187,15 +187,16 @@ def candidate_values(text: str) -> list[str]:
 # same relation, which is wrong for grouping and would have made unrelated metrics look
 # like competing values for one attribute.
 METRIC_RELATIONS = {
-    "ships_on": "The date something ships, launches or goes live.",
-    "starts_on": "The date something starts or begins.",
-    "ends_on": "The date something ends, expires or is due.",
+    # Date and money roles are deliberately absent. Measured on a 25-proposal sample,
+    # the date roles were correct 1 time in 9 - assigning "starts_on" requires reading
+    # the note's intent, not the sentence, so "she was chased up on the 24th" became a
+    # start date. Money was correct 0 times in 3. Counts and versions are what a
+    # sentence states literally, so the vocabulary is limited to those.
     "question_count": "A number of questions or questionnaire items.",
     "task_count": "A number of tasks, actions or todos.",
     "actor_count": "A number of people, actors or participants.",
     "signal_count": "A number of signals, rules or clinical inputs.",
     "item_count": "A number of other items, categories or entries.",
-    "price": "An amount of money, fee, budget or salary.",
     "version": "A version or release identifier.",
     "status": "Whether something is active, paused, archived, open or closed.",
 }
@@ -207,8 +208,8 @@ ABSOLUTE_DATE_RE = r"\b\d{4}-\d{2}-\d{2}\b"
 MONTH_NAMES = "janvier|fevrier|février|mars|avril|mai|juin|juillet|aout|août|septembre|octobre|novembre|decembre|décembre"
 WRITTEN_DATE_RE = rf"\b\d{{1,2}}\s+(?:{MONTH_NAMES})\s+\d{{4}}\b"
 MONTH_YEAR_RE = rf"\b(?:{MONTH_NAMES})\s+\d{{4}}\b"
-MONEY_RE = r"\b\d[\d\s.,]*\s?(?:k€|€|\$|kEUR|EUR)\b"
-COUNT_RE = r"\b\d[\d\s.,]*\s?(?:Q\b|r[eè]gles?|t[aâ]ches?|acteurs?|items?|questions?|signaux?|cat[eé]gories?|%)\b"
+MONEY_RE = r"\$\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:k€|€|kEUR|EUR)\b"
+COUNT_RE = r"\b\d[\d,]*(?:\.\d+)?\s?(?:Q\b|r[eè]gles?|t[aâ]ches?|acteurs?|items?|questions?|signaux?|cat[eé]gories?|%)"
 VERSION_RE = r"\bv?\d+\.\d+(?:\.\d+)?\b"
 
 
@@ -788,14 +789,30 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
             ),
             "criteria": {**options, "no_metric": "None of these is asserted as a fact."},
         }
-        questions[f"relation::{cid}"] = {
-            "type": "choice",
-            "instructions": (
-                f"Which relation does candidate_sentences[id={cid}] assert for the metric it "
-                "states? Choose the closest."
-            ),
-            "criteria": {**METRIC_RELATIONS, "other": "None of these fits."},
+        # Present one relation question per value kind, so the model never has to map a
+        # date onto a count or a count onto a version. Kind-compatible answers only.
+        by_kind = {
+            "count": [m["value"] for m in candidate["metrics"] if m["kind"] == "count"],
+            "version": [m["value"] for m in candidate["metrics"] if m["kind"] == "version"],
         }
+        if by_kind["count"]:
+            questions[f"relation_count::{cid}"] = {
+                "type": "choice",
+                "instructions": (
+                    f"candidate_sentences[id={cid}] states a count. What is counted? "
+                    "Choose the closest, or other."
+                ),
+                "criteria": {k: v for k, v in METRIC_RELATIONS.items() if k.endswith("_count") or k == "version"}
+                           | {"other": "None of these fits."},
+            }
+        if by_kind["version"] and not by_kind["count"]:
+            questions[f"relation_version::{cid}"] = {
+                "type": "choice",
+                "instructions": (
+                    f"candidate_sentences[id={cid}] states a version. Confirm that reading."
+                ),
+                "criteria": {"version": METRIC_RELATIONS["version"], "other": "It is not a version."},
+            }
         aspect_options = {a: None for a in aspects}
         questions[f"aspect::{cid}"] = {
             "type": "choice",
@@ -837,7 +854,8 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
     for candidate in sentences_with_metrics:
         cid = candidate["id"]
         value = answers.get(f"metric::{cid}", {}).get("choice")
-        relation = answers.get(f"relation::{cid}", {}).get("choice")
+        relation = answers.get(f"relation_count::{cid}", {}).get("choice") or \
+            answers.get(f"relation_version::{cid}", {}).get("choice")
         world = float(answers.get(f"world::{cid}", {}).get("noul", 0.0))
         entry = {
             "source": note["slug"], "span": candidate["text"], "subject": subject,
@@ -848,6 +866,13 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
         # counts for one subject become six relations rather than six competing values.
         # The name comes from the note's own labels, so it is grounded rather than
         # invented; if none fits, the proposal is dropped instead of guessed at.
+        # Enforce kind compatibility in code, not just in the prompt: a version value can
+        # never satisfy a count relation, and vice versa.
+        value_kind = next((m["kind"] for m in candidate["metrics"] if m["value"] == value), None)
+        if relation == "version" and value_kind != "version":
+            relation = None
+        if relation and relation.endswith("_count") and value_kind != "count":
+            relation = None
         if relation in {"question_count", "task_count", "actor_count", "signal_count", "item_count"}:
             if not aspect or aspect == "unclear_aspect":
                 relation = None
@@ -857,6 +882,12 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
         # The entry was built before the aspect was resolved, so write the final
         # relation back onto it. Without this the aspect never reached the output.
         entry["relation"] = relation
+        # The value must be present in its own span. The writer enforces this too, but a
+        # proposal whose evidence does not contain the value is not a proposal, and three
+        # of twelve version hits failed exactly this test in measurement.
+        if value and value not in candidate["text"]:
+            entry["why"] = "value is not present in the span that is supposed to evidence it"
+            relation = None
         if not value or value == "no_metric" or not relation or relation == "other" or world < args.min_world_claim:
             entry["why"] = (
                 "model asserts no metric" if not value or value == "no_metric"
@@ -874,8 +905,6 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
                 stated = month_to_iso(item["value"])
                 if stated:
                     break
-        if relation in {"ships_on", "starts_on", "ends_on"} and value:
-            stated = month_to_iso(value) or stated
         entry["valid_from"] = stated or args.today
         entry["date_basis"] = "stated in the sentence" if stated else f"not stated; defaults to {args.today}"
         proposals.append(entry)

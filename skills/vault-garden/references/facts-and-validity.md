@@ -405,3 +405,51 @@ ledger would have shown them all as current facts with nothing indicating a prob
 The pipeline therefore writes what it can prove and refuses what it cannot, visibly.
 That is the property that makes unattended use defensible: a refusal is recoverable,
 a wrong fact that reads as current is not.
+
+## Measured precision, and the correction that came with it
+
+I hand-labelled proposals against their full source spans.
+
+| Round | Sample | Correct | Precision |
+| --- | --- | --- | --- |
+| First | 25 | 8 | **0.32** |
+| After scoping relations to what a sentence states literally | 12 | 9 | **0.75** |
+
+The first round was a failure and worth keeping visible. It sat at the published
+baseline for this task (0.357), and the breakdown showed why: the date roles
+(`starts_on`, `ships_on`, `ends_on`) were correct **1 time in 9**. Assigning a semantic
+role like "when this starts" requires reading the note's *intent*, not its sentences —
+"she was chased up on the 24th" became a project start date. `price` was correct 0
+times in 3, including a date classified as a price and `$58,767.41` mangled into
+`767.41`.
+
+What fixed it:
+
+- **Scoped the relation vocabulary to what a sentence states literally** — counts and
+  versions. Dates and money roles are gone.
+- **Kind-aware value selection**: a count relation can only receive a count value, a
+  version relation only a version. This stopped dates filling version slots.
+- **Fixed thousands separators**, which were splitting `$58,767.41` into two numbers.
+- **Enforced value-in-span at proposal time**, not only in the write gate.
+
+### Two caveats that matter more than the number
+
+1. **I labelled the sample myself, after writing the extractor.** That is not
+   independent evaluation, and it is the weakest part of this measurement.
+2. **Twelve items is a small sample.** Read 0.75 as "roughly two thirds to four
+   fifths", not as a precise figure.
+
+I also made a labelling error worth recording: in the second round I judged from spans
+truncated to 74 characters and wrongly called three correct version facts "not
+mentioned". They were mentioned; I had not read them. A measurement is only as good as
+what the person labelling actually read.
+
+### What still fails
+
+Three of twelve, all one cause: **the relation names what is measured but not which
+subset**. "150 Q" was labelled `question_count__taches` when the span says questionnaire
+items; a range "2–5 catégories" was collapsed to 5; and "126 questions" is a breakdown
+of the 150 rather than a standalone fact.
+
+This is the remaining work before unattended use: the relation needs to name the subset,
+or a range and a breakdown need to be represented rather than flattened.
