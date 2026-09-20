@@ -1,0 +1,14 @@
+skills/vault-garden/references/facts-and-validity.md
+  h_ecee222750141d 283-341
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "164544bc79ffbb1fcc9caadf86261ecb0dbc6b74",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
