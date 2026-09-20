@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFactLedger,
+  factsFromNotes,
   compareRecency,
   currentStateOf,
   isOpenAt,
@@ -152,3 +153,52 @@ describe('fact ledger', () => {
   });
 });
 
+
+describe('factsFromNotes', () => {
+  it('detects a fact by the fields it declares, not by its type', () => {
+    // No new note type is required, so this works on a vault with a stock config.
+    const facts = factsFromNotes([
+      {
+        slug: 'plain-note',
+        frontmatter: {
+          type: 'note',
+          title: 'Anything',
+          subject: 'Monka',
+          relation: 'hosting',
+          object: 'Scaleway',
+          valid_from: '2026-06-01',
+        },
+      },
+    ]);
+    expect(facts).toHaveLength(1);
+    expect(facts[0].object).toBe('Scaleway');
+  });
+
+  it('skips a note that is missing a required field rather than guessing', () => {
+    const facts = factsFromNotes([
+      { slug: 'a', frontmatter: { type: 'note', subject: 'X', relation: 'r', object: 'o' } },
+      { slug: 'b', frontmatter: { type: 'note', subject: 'X', relation: 'r', valid_from: '2026-01-01' } },
+      { slug: 'c', frontmatter: { type: 'note' } },
+    ]);
+    expect(facts).toEqual([]);
+  });
+
+  it('reads valid_to and confidence when present', () => {
+    const facts = factsFromNotes([
+      {
+        slug: 'f',
+        frontmatter: {
+          type: 'note',
+          subject: 'X',
+          relation: 'r',
+          object: 'o',
+          valid_from: '2026-01-01',
+          valid_to: '2026-02-01',
+          confidence: 0.8,
+        },
+      },
+    ]);
+    expect(facts[0].valid_to).toBe('2026-02-01');
+    expect(facts[0].confidence).toBe(0.8);
+  });
+});
