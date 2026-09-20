@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           package-manager-cache: false
 
       - name: Install dependencies
@@ -67,15 +67,6 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
             echo "Publishing ${name}@${version}"
           fi
-
-      - name: Use an npm that supports trusted publishing
-        # Node 22 keeps better-sqlite3 stable under coverage, but its bundled npm is
-        # 10.x. Trusted publishing (OIDC, no token) requires npm 11+, and on 10.x the
-        # registry call fails with ENEEDAUTH instead of attempting OIDC.
-        run: |
-          echo "npm before: $(npm --version)"
-          npm install -g npm@^11
-          echo "npm after:  $(npm --version)"
 
       - name: Publish to npm
         if: steps.package.outputs.publish == 'true'
@@ -95,7 +86,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           package-manager-cache: false
 
       - name: Install dependencies
@@ -125,15 +116,6 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
             echo "Publishing ${name}@${version}"
           fi
-
-      - name: Use an npm that supports trusted publishing
-        # Node 22 keeps better-sqlite3 stable under coverage, but its bundled npm is
-        # 10.x. Trusted publishing (OIDC, no token) requires npm 11+, and on 10.x the
-        # registry call fails with ENEEDAUTH instead of attempting OIDC.
-        run: |
-          echo "npm before: $(npm --version)"
-          npm install -g npm@^11
-          echo "npm after:  $(npm --version)"
 
       - name: Publish to npm
         if: steps.package.outputs.publish == 'true'
