@@ -1,0 +1,18 @@
+src/core/index-db.ts
+  h_ecee222750141d 91-98,222,225,234-241,243,248,250-251,253-272,414-420
+test/core/index-db-incremental.test.ts
+  h_ecee222750141d 139-160
+test/core/index-db.test.ts
+  h_ecee222750141d 5,107-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "72d90c508759db126aeae20f865395fe40f3176a",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
