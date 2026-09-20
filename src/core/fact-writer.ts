@@ -49,10 +49,23 @@ export interface RejectedProposal {
   reason: string;
 }
 
+export interface CollisionReport {
+  subject: string;
+  relation: string;
+  objects: string[];
+  sources: string[];
+}
+
 export interface FactWriteResult {
   written: string[];
   existing: string[];
   rejected: RejectedProposal[];
+  /**
+   * Subject+relation pairs that several proposals claimed with different values.
+   * None of them were written, because the ledger would have shown them as competing
+   * current facts. This is the shape a human or an agent has to disambiguate.
+   */
+  collisions: CollisionReport[];
 }
 
 function fold(value: string): string {
@@ -168,8 +181,36 @@ export function writeFacts(
   const now = options.now ?? new Date();
   const iso = now.toISOString();
   const folder = path.join(vaultRoot, config.note_types.note.folder);
-  const result: FactWriteResult = { written: [], existing: [], rejected: [] };
+  const result: FactWriteResult = { written: [], existing: [], rejected: [], collisions: [] };
   const inserted: string[] = [];
+
+  // Detect ambiguity before writing anything. Two proposals claiming different values
+  // for one subject and relation are not two facts the ledger can hold: they would
+  // both appear current, which is why a note that counts six different things must
+  // name them separately. Writing them silently is how a ledger becomes untrustworthy.
+  const claims = new Map<string, Map<string, Set<string>>>();
+  for (const proposal of proposals) {
+    if (rejectionReason(proposal)) continue;
+    const key = `${proposal.subject.toLowerCase()}\u0000${proposal.relation.toLowerCase()}`;
+    const objects = claims.get(key) ?? new Map<string, Set<string>>();
+    const object = proposal.object.trim().toLowerCase();
+    const sources = objects.get(object) ?? new Set<string>();
+    sources.add(proposal.source);
+    objects.set(object, sources);
+    claims.set(key, objects);
+  }
+  const ambiguous = new Set<string>();
+  for (const [key, objects] of claims) {
+    if (objects.size <= 1) continue;
+    ambiguous.add(key);
+    const [subject, relation] = key.split('\u0000');
+    result.collisions.push({
+      subject,
+      relation,
+      objects: [...objects.keys()].sort(),
+      sources: [...new Set([...objects.values()].flatMap(set => [...set]))].sort(),
+    });
+  }
 
   for (const proposal of proposals) {
     // Deduplicate within the batch as well as against disk.
@@ -180,6 +221,16 @@ export function writeFacts(
     const reason = rejectionReason(proposal);
     if (reason) {
       result.rejected.push({ proposal, reason });
+      continue;
+    }
+    const claimKey = `${proposal.subject.toLowerCase()}\u0000${proposal.relation.toLowerCase()}`;
+    if (ambiguous.has(claimKey)) {
+      result.rejected.push({
+        proposal,
+        reason:
+          `ambiguous: ${proposal.subject} / ${proposal.relation} is claimed with more than one ` +
+          'value, so the relation must name what is measured before this can be recorded',
+      });
       continue;
     }
 
@@ -244,6 +295,7 @@ export function writeFacts(
     appendAuditEvent(vaultRoot, {
       action: 'facts.write',
       inserted,
+      collisions: result.collisions,
       rejected: result.rejected.map(r => ({
         source: r.proposal.source,
         subject: r.proposal.subject,

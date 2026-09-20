@@ -170,6 +170,53 @@ describe('fact writer', () => {
     expect(factSlug(proposal({ source: 'elsewhere' }))).not.toBe(a);
   });
 
+  it('refuses ambiguous claims instead of writing competing facts', () => {
+    // Six counts for one subject under one relation are not six facts the ledger can
+    // hold; they would all read as current. The guard refuses the whole group.
+    const proposals = [
+      proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.', relation: 'question_count' }),
+      proposal({ object: '126 questions', span: '126 questions socle communes.', relation: 'question_count' }),
+    ];
+    const result = writeFacts(tmpDir, config, proposals, { apply: true });
+
+    expect(result.written).toEqual([]);
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0]).toMatchObject({
+      subject: 'monka',
+      relation: 'question_count',
+      objects: ['126 questions', '150 q'],
+    });
+    expect(result.rejected.every(r => r.reason.includes('ambiguous'))).toBe(true);
+  });
+
+  it('still writes two values for one subject when the relations differ', () => {
+    // This is the fix the guard forces: name what is measured, and both can be written.
+    const result = writeFacts(
+      tmpDir,
+      config,
+      [
+        proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.', relation: 'question_count__questionnaire_initial' }),
+        proposal({ object: '126 questions', span: '126 questions socle communes.', relation: 'question_count__questions_socle' }),
+      ],
+      { apply: true },
+    );
+    expect(result.written).toHaveLength(2);
+    expect(result.collisions).toEqual([]);
+  });
+
+  it('does not report a collision when the same value is claimed twice', () => {
+    const result = writeFacts(
+      tmpDir,
+      config,
+      [
+        proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.' , relation: 'question_count' }),
+        proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.' , relation: 'question_count' }),
+      ],
+      { apply: true },
+    );
+    expect(result.collisions).toEqual([]);
+  });
+
   it('reports a rejection reason directly', () => {
     expect(rejectionReason(proposal())).toBeUndefined();
     expect(rejectionReason(proposal({ relation: '' }))).toContain('no relation');

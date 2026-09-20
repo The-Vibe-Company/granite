@@ -366,16 +366,42 @@ python3 skills/vault-garden/scripts/jev_facts.py metrics <slug> | granite facts 
 Verified end to end: 12 proposals accepted, 0 refused, written into the ledger, then
 answered by `granite facts --subject Monka`.
 
-### The remaining flaw, stated plainly
+### The collision, and how it was resolved
 
-A note that counts several different things with the same unit still collides: the
-engine-spec note yields six distinct values under `question_count` (150 Q, 126
-questions, 24 questions, 55 questions, 52 Q, 50 Q), which are different measurements
-rather than competing facts. The ledger surfaces them all as current, which is honest
-but not yet useful grouping.
+A note that counts several different things with the same unit used to collide: the
+engine-spec note produced six values under one `question_count` relation, all reading
+as competing current facts.
 
-I tried letting the model name what is counted by selecting a description; it returned
-the option key rather than the description, so the collision remained. Fixing this
-properly needs either unit-bearing relation names chosen at a layer that can validate
-them, or a separate "what is measured" field. It is recorded here rather than papered
-over, because it is the one thing standing between this and unattended use.
+The relation now carries **what is counted**, taken from labels the note already
+writes itself (`Questionnaire initial — 150 Q`, `126 questions socle`, `24 questions
+adaptées`, `Règles d'activation — 319`). Those labels are read deterministically from
+the text — grounded, not invented — and the model selects among them. Six counts that
+used to collide are now six relations:
+
+```
+question_count__initial                       = 150 Q
+question_count__personnalisation              = 24 questions
+question_count__nature_clinique               = 55 questions
+question_count__score_1_vulnerabilite_aidant  = 52 Q
+question_count__score_2_fragilite_proche      = 50 Q
+signal_count__regles_d_activation             = 202 signaux
+```
+
+A defensive guard in the writer covers what naming cannot. Two proposals claiming
+different values for one subject and relation would both read as current, so the whole
+group is **refused and surfaced** rather than written:
+
+```
+Ambiguous — refused until the relation names what is measured:
+  monka · question_count__initial   distinct values: 126 questions / 150 q
+  monka · task_count__taches        distinct values: 389 tâches / 589 tâches
+```
+
+Those refusals are correct rather than a failure. `202 signaux + 117 composites = 319`
+means the two values are the same total counted differently, so writing both would have
+been a quiet error; `389 tâches` and `589 tâches` are different scopes. Previously the
+ledger would have shown them all as current facts with nothing indicating a problem.
+
+The pipeline therefore writes what it can prove and refuses what it cannot, visibly.
+That is the property that makes unattended use defensible: a refusal is recoverable,
+a wrong fact that reads as current is not.

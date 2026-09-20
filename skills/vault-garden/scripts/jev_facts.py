@@ -42,6 +42,7 @@ import os
 import re
 import sqlite3
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -209,6 +210,53 @@ MONTH_YEAR_RE = rf"\b(?:{MONTH_NAMES})\s+\d{{4}}\b"
 MONEY_RE = r"\b\d[\d\s.,]*\s?(?:k€|€|\$|kEUR|EUR)\b"
 COUNT_RE = r"\b\d[\d\s.,]*\s?(?:Q\b|r[eè]gles?|t[aâ]ches?|acteurs?|items?|questions?|signaux?|cat[eé]gories?|%)\b"
 VERSION_RE = r"\bv?\d+\.\d+(?:\.\d+)?\b"
+
+
+def note_aspect_labels(body: str, limit: int = 12) -> list[str]:
+    """Short leading labels the note itself uses for its counts.
+
+    Real notes label what they count ("Questionnaire initial — 150 Q", "126 questions
+    socle ...", "Règles d'activation — 319"). Those labels are the disambiguation we
+    need, so they are read from the text rather than invented.
+
+    A first version kept every line containing a digit, which produced lead-ins like
+    "En France" and "Flux utilisateur en" and table fragments; the model then answered
+    "unclear" to all of them. Only genuine `label — number` and `label N unit` shapes
+    are kept, and section numbering is stripped.
+    """
+    labels: list[str] = []
+    skip_prefixes = (
+        "un ", "une ", "le ", "la ", "les ", "en ", "il ", "elle ", "ce ", "cet ",
+        "chaque ", "tous ", "toutes ", "pour ", "dans ", "avec ", "sur ",
+    )
+    for raw in body.splitlines():
+        line = re.sub(r"\*\*|__|`", "", raw).strip().lstrip("-*# ").strip()
+        if len(line) < 6 or not re.search(r"\d", line):
+            continue
+        if line.startswith("|"):
+            continue
+        label = None
+        match = re.match(r"^([^—:–|]{3,48})[—:–]\s*\d", line)
+        if match:
+            label = match.group(1)
+        else:
+            match = re.match(
+                r"^([A-Za-zÀ-ÿ][^—:–|]{2,48}?)\s+\d[\d\s.,]*\s?"
+                r"(?:Q\b|r[eè]gles?|t[aâ]ches?|acteurs?|items?|questions?|signaux?|cat[eé]gories?|%)",
+                line,
+            )
+            if match:
+                label = match.group(1)
+        if not label:
+            continue
+        # Drop a leading section number: "4.1 Règles d'activation" -> "Règles d'activation".
+        label = re.sub(r"^\d+(?:\.\d+)*\s*", "", label).strip(" .,;:-")
+        if len(label) < 3 or len(label) > 48:
+            continue
+        if label.lower().startswith(skip_prefixes):
+            continue
+        labels.append(re.sub(r"\s+", " ", label))
+    return list(dict.fromkeys(labels))[:limit]
 
 
 def metric_candidates(sentence: str) -> list[dict[str, str]]:
@@ -673,6 +721,21 @@ def month_to_iso(value: str) -> str | None:
     return None
 
 
+def slugify_aspect(value: Any) -> str:
+    """Turn an aspect label into a relation-name fragment.
+
+    Uses unicodedata rather than the str.normalize method: this helper runs inside a
+    generated __pycache__ import chain, and the explicit call removes any ambiguity
+    about which object is being normalised.
+    """
+    if not isinstance(value, str):
+        return ""
+    folded = "".join(
+        c for c in unicodedata.normalize("NFD", value) if not unicodedata.combining(c)
+    )
+    return re.sub(r"[^a-zA-Z0-9]+", "_", folded).strip("_").lower()[:32]
+
+
 def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
     """Extract only structured, verifiable claims.
 
@@ -712,6 +775,7 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
         }, indent=2))
         return 0
 
+    aspects = note_aspect_labels(note["body"])
     questions: dict[str, Any] = {}
     for candidate in sentences_with_metrics:
         cid = candidate["id"]
@@ -732,22 +796,14 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
             ),
             "criteria": {**METRIC_RELATIONS, "other": "None of these fits."},
         }
-        questions[f"phrase::{cid}"] = {
+        aspect_options = {a: None for a in aspects}
+        questions[f"aspect::{cid}"] = {
             "type": "choice",
             "instructions": (
-                f"For candidate_sentences[id={cid}], what exactly is being counted or measured? "
-                "Choose the phrase that names it."
+                f"Which candidate_aspects entry names what candidate_sentences[id={cid}] "
+                "counts or measures? Choose the closest."
             ),
-            "criteria": {
-                "questionnaire_items": "Items in a questionnaire or survey.",
-                "clinical_rules": "Clinical rules, signals or decision rules.",
-                "clinical_signals": "Individual clinical signals or indicators.",
-                "action_categories": "Categories of action or intervention.",
-                "action_tasks": "Tasks, actions or todos.",
-                "mobile_screens": "Screens or pages in an application.",
-                "care_recipients": "People being cared for, or caregivers.",
-                "other_measure": "Something else being counted or measured.",
-            },
+            "criteria": {**aspect_options, "unclear_aspect": "None of these names it."},
         }
         questions[f"world::{cid}"] = {
             "type": "noul",
@@ -767,6 +823,7 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
              {"id": c["id"], "text": c["text"]}
              for c in sentences_with_metrics
          ],
+         "candidate_aspects": aspects,
          "candidate_metrics": [
              {"sentence_id": c["id"], "values": [m["value"] for m in c["metrics"]]}
              for c in sentences_with_metrics
@@ -786,14 +843,20 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
             "source": note["slug"], "span": candidate["text"], "subject": subject,
             "relation": relation, "object": value, "world_claim": round(world, 2),
         }
-        phrase = answers.get(f"phrase::{cid}", {}).get("choice")
-        # A counted metric gets a relation that names what is counted, so six different
-        # counts for one subject are six relations rather than six competing values.
+        aspect = answers.get(f"aspect::{cid}", {}).get("choice")
+        # A counted metric gets a relation naming what is counted, so six different
+        # counts for one subject become six relations rather than six competing values.
+        # The name comes from the note's own labels, so it is grounded rather than
+        # invented; if none fits, the proposal is dropped instead of guessed at.
         if relation in {"question_count", "task_count", "actor_count", "signal_count", "item_count"}:
-            if not phrase or phrase == "other_measure":
-                relation = None  # ambiguous measurement: drop rather than guess
+            if not aspect or aspect == "unclear_aspect":
+                relation = None
             else:
-                relation = phrase
+                slug = slugify_aspect(aspect)
+                relation = f"{relation}__{slug}" if slug else None
+        # The entry was built before the aspect was resolved, so write the final
+        # relation back onto it. Without this the aspect never reached the output.
+        entry["relation"] = relation
         if not value or value == "no_metric" or not relation or relation == "other" or world < args.min_world_claim:
             entry["why"] = (
                 "model asserts no metric" if not value or value == "no_metric"
@@ -815,9 +878,6 @@ def metrics(api_key: str, args: argparse.Namespace, vault: Path) -> int:
             stated = month_to_iso(value) or stated
         entry["valid_from"] = stated or args.today
         entry["date_basis"] = "stated in the sentence" if stated else f"not stated; defaults to {args.today}"
-        if stated and relation not in {"ships_on", "starts_on", "ends_on"}:
-            # The date was stated but is not the asserted value; keep both.
-            entry["relation"] = "count" if relation is None else relation
         proposals.append(entry)
 
     # One entry per (relation, object): the same value stated twice is one fact.

@@ -118,10 +118,12 @@ export function factsCommand(options: FactsOptions): void {
           object: r.proposal.object,
           reason: r.reason,
         })),
+        collisions: result.collisions,
         summary: {
           written: result.written.length,
           already_present: result.existing.length,
           rejected: result.rejected.length,
+          collisions: result.collisions.length,
         },
       }));
       return;
@@ -135,7 +137,16 @@ export function factsCommand(options: FactsOptions): void {
     }
     for (const slug of result.written) console.log(`  + ${slug}`);
     for (const slug of result.existing) console.log(`  = ${slug} (already recorded)`);
+    if (result.collisions.length > 0) {
+      // Surface the ambiguity rather than letting the ledger imply competing facts.
+      console.log('Ambiguous — refused until the relation names what is measured:');
+      for (const collision of result.collisions) {
+        console.log(`  ${collision.subject} · ${collision.relation}`);
+        console.log(`    distinct values: ${collision.objects.join(' / ')}`);
+      }
+    }
     for (const rejection of result.rejected) {
+      if (rejection.reason.startsWith('ambiguous:')) continue;
       console.log(`  x ${rejection.proposal.source}: ${rejection.reason}`);
     }
     console.log('');
