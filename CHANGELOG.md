@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.15...granite-mem-v0.1.16) (2026-09-20)
+
+
+### Features
+
+* **facts:** deterministic validity ledger, entity alignment, and measured Jev proposals ([#56](https://github.com/The-Vibe-Company/granite/issues/56)) ([98fd484](https://github.com/The-Vibe-Company/granite/commit/98fd4844502447eaa8d8a40aa9572601ebbb78cf))
+
 ## [0.1.15](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.14...granite-mem-v0.1.15) (2026-09-20)
 
 
