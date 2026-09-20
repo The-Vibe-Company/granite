@@ -1,0 +1,26 @@
+src/commands/search.ts
+  h_ecee222750141d 7-10,15-18
+src/commands/suggest-links.ts
+  h_ecee222750141d 8,24
+src/core/search.ts
+  h_ecee222750141d 4-6,29-53,71,79,100,108
+src/core/suggest.ts
+  h_ecee222750141d 11-24,26-29,31-32,34-76,78-97,99-140,142-145,147-164,167,169-190,195-199
+src/index.ts
+  h_ecee222750141d 136-138,184-185
+test/core/search.test.ts
+  h_ecee222750141d 82-108
+test/core/suggest.test.ts
+  h_ecee222750141d 1-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5a6f8efd201dfe1aa3068a01c5b0f4973ffa8316",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
