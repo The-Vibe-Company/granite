@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.18...granite-mem-v0.1.19) (2026-09-20)
+
+
+### Bug Fixes
+
+* **release:** write the npm auth file where npm actually reads it ([#65](https://github.com/The-Vibe-Company/granite/issues/65)) ([f1af8bc](https://github.com/The-Vibe-Company/granite/commit/f1af8bc0c6c1f5b37f0abf6c7019aa5f85279b9e))
+
 ## [0.1.18](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.17...granite-mem-v0.1.18) (2026-09-20)
 
 
