@@ -17,6 +17,8 @@ import {
   renderNoteTypesMarkdown,
   renderQueryResultsMarkdown,
   renderSearchResultsMarkdown,
+  renderEntitiesMarkdown,
+  renderFactsMarkdown,
   renderUnderstandNoteMarkdown,
   renderWakeupMarkdown,
 } from '../../shared/mcp-markdown.js';
@@ -83,6 +85,8 @@ function buildServerInstructions(runtime: GraniteMcpRuntime, role: McpAccessRole
     'Granite exposes a small public MCP surface:',
     '',
     '- **granite_wakeup** — load the map of the vault before doing work',
+    '- **granite_facts** — read the fact ledger: what is current, superseded, or contradictory',
+    '- **granite_entities** — find notes that may describe the same thing',
     '- **granite_research_topic** — discover relevant notes for a topic',
     '- **granite_resolve** — deterministically resolve free text to a note slug before linking',
     '- **granite_query** — run structured queries over typed notes and indexed fields',
@@ -266,6 +270,31 @@ function buildTypeSchema(runtime: GraniteMcpRuntime, describe: string) {
 function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpAccessRole): void {
   const canWrite = role === 'write';
   const canParseDocuments = !isDocumentParsingDisabled();
+
+  server.registerTool('granite_facts', {
+    title: 'Granite Facts',
+    description: 'Read the fact ledger: which facts are current about a subject, which were superseded, and which contradict each other. Use before stating a fact about the user, a client or a project, so you answer from the current value instead of a stale note. Contradictions are reported and deliberately not resolved.',
+    inputSchema: {
+      subject: z.string().optional().describe('Return the current state of one subject only.'),
+      relation: z.string().optional().describe('With subject, narrow to one relation.'),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ subject, relation }) => {
+    const result = runtime.facts({ subject, relation });
+    return toolResult(renderFactsMarkdown(result));
+  });
+
+  server.registerTool('granite_entities', {
+    title: 'Granite Entities',
+    description: 'Find notes that may describe the same thing, using deterministic signals (identical folded titles, or one alias claimed by two notes). Returns what is safe to apply as a reversible alias and what needs a human decision. Never merges or rewrites a note.',
+    inputSchema: {
+      types: z.array(z.string()).optional().describe('Restrict to these note types.'),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ types }) => {
+    const result = runtime.entities({ types });
+    return toolResult(renderEntitiesMarkdown(result));
+  });
 
   server.registerTool('granite_wakeup', {
     title: 'Granite Wakeup',

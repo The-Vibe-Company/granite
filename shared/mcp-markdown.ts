@@ -838,3 +838,124 @@ const STANDARD_FRONTMATTER_KEYS = new Set([
   'durability',
   'derived_from',
 ]);
+
+export interface FactLedgerLike {
+  total: number;
+  current: Array<{ subject: string; relation: string; object: string; valid_from: string; slug: string; source?: string }>;
+  contradictions: Array<{
+    subject: string;
+    relation: string;
+    facts: Array<{ object: string; valid_from: string; slug: string }>;
+    detail: string;
+  }>;
+  superseded: Array<{
+    fact: { subject: string; relation: string; object: string };
+    superseded_by?: string;
+    reason: string;
+  }>;
+}
+
+/**
+ * Render the fact ledger for an agent.
+ *
+ * Contradictions are shown as unresolved on purpose: the ledger reports them and never
+ * picks a winner, because automatic resolution was measured to retire true facts far too
+ * often. An agent reading this must decide, not assume the question is settled.
+ */
+export function renderFactsMarkdown(result: FactLedgerLike): string {
+  const lines: string[] = ['# Fact Ledger', ''];
+  lines.push(`- Facts recorded: ${result.total}`);
+  lines.push(`- Current: ${result.current.length}`);
+  lines.push(`- Contradictions: ${result.contradictions.length}`);
+  lines.push('');
+
+  if (result.total === 0) {
+    lines.push('No facts yet. A fact is any note whose frontmatter declares');
+    lines.push('`subject`, `relation`, `object` and `valid_from`. No new note type is required.');
+    return lines.join('\n');
+  }
+
+  if (result.current.length > 0) {
+    lines.push('## Current');
+    for (const fact of result.current) {
+      lines.push(`- **${fact.subject} · ${fact.relation}** = ${fact.object}  (since ${fact.valid_from})`);
+    }
+    lines.push('');
+  }
+
+  if (result.contradictions.length > 0) {
+    lines.push('## Contradictions — NOT resolved');
+    lines.push('');
+    lines.push('These are open facts that disagree. The ledger does not choose between them;');
+    lines.push('resolve by closing the interval on the one that stopped being true.');
+    lines.push('');
+    for (const contradiction of result.contradictions) {
+      lines.push(`- **${contradiction.subject} · ${contradiction.relation}**`);
+      for (const fact of contradiction.facts) {
+        lines.push(`  - ${fact.object}  (from ${fact.valid_from}, \`${fact.slug}\`)`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (result.superseded.length > 0) {
+    lines.push('## Superseded');
+    for (const entry of result.superseded) {
+      lines.push(`- ${entry.fact.subject} · ${entry.fact.relation} = ${entry.fact.object} → replaced by \`${entry.superseded_by}\``);
+    }
+  }
+  return lines.join('\n');
+}
+
+export interface EntitiesLike {
+  scanned: number;
+  candidates: number;
+  planned_aliases: Array<{ target: string; alias: string; from: string }>;
+  review: Array<{
+    candidate: {
+      reason: string;
+      matched_on: string;
+      cross_type: boolean;
+      a: { slug: string; title: string; type: string };
+      b: { slug: string; title: string; type: string };
+    };
+    why: string;
+  }>;
+}
+
+/**
+ * Render entity-alignment candidates.
+ *
+ * Nothing here has been applied: the output separates what is safe to alias from what
+ * needs a decision, and merging two notes is never automatic.
+ */
+export function renderEntitiesMarkdown(result: EntitiesLike): string {
+  const lines: string[] = ['# Entity Alignment', ''];
+  lines.push(`- Notes scanned: ${result.scanned}`);
+  lines.push(`- Candidate pairs: ${result.candidates}`);
+  lines.push('');
+
+  if (result.candidates === 0) {
+    lines.push('No two notes share an identical folded title or claim the same alias.');
+    return lines.join('\n');
+  }
+
+  if (result.review.length > 0) {
+    lines.push('## Needs a decision — not applied');
+    for (const entry of result.review) {
+      const c = entry.candidate;
+      lines.push(`- \`${c.a.slug}\` (${c.a.type}) ↔ \`${c.b.slug}\` (${c.b.type})`);
+      lines.push(`  - matched on "${c.matched_on}" (${c.reason})`);
+      lines.push(`  - ${entry.why}`);
+    }
+    lines.push('');
+  }
+
+  if (result.planned_aliases.length > 0) {
+    lines.push('## Safe to apply as aliases — reversible');
+    for (const alias of result.planned_aliases) {
+      lines.push(`- \`${alias.target}\` += "${alias.alias}"  (from \`${alias.from}\`)`);
+    }
+  }
+  return lines.join('\n');
+}
