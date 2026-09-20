@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { loadConfig } from '../core/config.js';
 import { requireVaultRoot } from '../core/vault.js';
 import { listNotes } from '../core/note.js';
@@ -7,10 +8,15 @@ import {
   factsFromNotes,
   type FactLedger,
 } from '../core/facts.js';
+import { writeFacts, type FactProposal } from '../core/fact-writer.js';
 import { jsonSuccess } from '../core/json-output.js';
 
 export interface FactsOptions {
   json?: boolean;
+  /** Read proposals as JSON on stdin and commit the ones that pass the invariants. */
+  write?: boolean;
+  /** Plan the writes without creating anything. */
+  dryRun?: boolean;
   /** Only report contradictions. */
   contradictions?: boolean;
   /** Only report superseded facts. */
@@ -70,9 +76,75 @@ function renderLedger(ledger: FactLedger): void {
   console.log(`${ledger.entries.length} fact(s) in the ledger.`);
 }
 
+/** Read proposal JSON from stdin, so an agent can pipe extraction output straight in. */
+function readProposalsFromStdin(): FactProposal[] {
+  let raw = '';
+  try {
+    raw = fs.readFileSync(0, 'utf-8');
+  } catch {
+    return [];
+  }
+  if (!raw.trim()) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    // Accept either a bare array or the shape `jev_facts.py facts` already emits.
+    if (Array.isArray(parsed)) return parsed as FactProposal[];
+    if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { facts?: unknown[] }).facts)) {
+      return (parsed as { facts: FactProposal[] }).facts;
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
 export function factsCommand(options: FactsOptions): void {
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
+
+  // The autonomous path: turn proposals into fact notes, enforcing provenance,
+  // idempotency and an audit trail, with no human in the loop.
+  if (options.write || options.dryRun) {
+    const proposals = readProposalsFromStdin();
+    const result = writeFacts(vaultRoot, config, proposals, { apply: options.write === true && options.dryRun !== true });
+    if (options.json) {
+      console.log(jsonSuccess({
+        applied: options.write === true && options.dryRun !== true,
+        written: result.written,
+        existing: result.existing,
+        rejected: result.rejected.map(r => ({
+          source: r.proposal.source,
+          subject: r.proposal.subject,
+          object: r.proposal.object,
+          reason: r.reason,
+        })),
+        summary: {
+          written: result.written.length,
+          already_present: result.existing.length,
+          rejected: result.rejected.length,
+        },
+      }));
+      return;
+    }
+    if (result.written.length === 0 && result.rejected.length === 0 && result.existing.length === 0) {
+      console.log('No proposals on stdin.');
+      console.log('');
+      console.log('Pipe extraction output in, for example:');
+      console.log('  python3 skills/vault-garden/scripts/jev_facts.py facts <slug> | granite facts --write --json');
+      return;
+    }
+    for (const slug of result.written) console.log(`  + ${slug}`);
+    for (const slug of result.existing) console.log(`  = ${slug} (already recorded)`);
+    for (const rejection of result.rejected) {
+      console.log(`  x ${rejection.proposal.source}: ${rejection.reason}`);
+    }
+    console.log('');
+    console.log(
+      `${result.written.length} written, ${result.existing.length} already present, ` +
+      `${result.rejected.length} refused${options.write && !options.dryRun ? ' (see .granite/audit.jsonl)' : ' (dry run)'}`,
+    );
+    return;
+  }
 
   // Any type that carries the fields can be a fact, but the built-in `fact` type
   // is the default. A vault with no facts is not an error.

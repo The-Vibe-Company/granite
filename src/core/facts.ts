@@ -301,6 +301,14 @@ export function currentStateOf(
  * `indexed_fields` declaration, so a vault can adopt facts without a config change,
  * and it reads the markdown that is the actual source of truth.
  */
+function sourceSlug(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  if (!text) return undefined;
+  const inner = text.replace(/^\[\[/, '').replace(/\]\]$/, '');
+  return (inner.split('|')[0] ?? '').trim() || undefined;
+}
+
 export function factsFromNotes(
   notes: Array<{ slug: string; frontmatter: Record<string, unknown> }>,
 ): Fact[] {
@@ -330,7 +338,9 @@ export function factsFromNotes(
       object,
       valid_from: validFrom,
       valid_to: typeof fm.valid_to === 'string' && fm.valid_to.trim() ? fm.valid_to.trim() : undefined,
-      source: typeof fm.source_note === 'string' ? fm.source_note : undefined,
+      // `source_note` is written as a wikilink so the note stays navigable, but the
+      // ledger carries the plain slug.
+      source: sourceSlug(fm.source_note),
       confidence: confidence !== undefined && !Number.isNaN(confidence) ? confidence : undefined,
     });
   }

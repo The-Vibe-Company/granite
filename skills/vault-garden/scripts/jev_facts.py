@@ -111,7 +111,75 @@ def sentences(body: str, limit: int) -> list[dict[str, Any]]:
     return out[:limit]
 
 
-def build_extraction_questions(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+
+MONTHS = {
+    "janvier": "01", "fevrier": "02", "février": "02", "mars": "03", "avril": "04",
+    "mai": "05", "juin": "06", "juillet": "07", "aout": "08", "août": "08",
+    "septembre": "09", "octobre": "10", "novembre": "11", "decembre": "12", "décembre": "12",
+}
+
+
+def candidate_dates(text: str) -> list[str]:
+    """Deterministic date candidates, so the model selects rather than generates."""
+    out: list[str] = []
+    for match in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b", text):
+        out.append(match.group(0))
+    for match in re.finditer(r"\b(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\s+(\d{4})\b", text):
+        month = MONTHS.get(match.group(2).lower())
+        if month:
+            out.append(f"{match.group(3)}-{month}-{int(match.group(1)):02d}")
+    for match in re.finditer(r"\b([A-Za-zÀ-ÿ]+)\s+(\d{4})\b", text):
+        month = MONTHS.get(match.group(1).lower())
+        if month:
+            out.append(f"{match.group(2)}-{month}-01")
+    # De-duplicate, preserving order.
+    return list(dict.fromkeys(out))[:6]
+
+
+def candidate_entities(text: str, note_title: str) -> list[str]:
+    """Entities the sentence could be about.
+
+    A capitalised-word regex failed here: on real prose it produced verbs and bare
+    nouns ("Fonctionne", "Flux", "Determinisme") that the model then selected as
+    subjects. Capitalisation is not an entity signal in French sentence-initial
+    position, so this reuses the word-window approach and lets the model choose.
+    """
+    tokens = re.findall(r"[\w€$%.,+-]+", text)
+    spans: list[str] = []
+    for size in (3, 2, 1):
+        for start_index in range(0, max(0, len(tokens) - size + 1)):
+            span = " ".join(tokens[start_index:start_index + size]).strip(" .,;:")
+            if 2 <= len(span) <= 60:
+                spans.append(span)
+    if note_title:
+        spans.insert(0, re.sub(r"^\[\[|\]\]$", "", note_title).strip())
+    return list(dict.fromkeys(spans))[:24]
+
+
+def candidate_values(text: str) -> list[str]:
+    """Short spans that could be the asserted value.
+
+    Generating this from a narrow regex (numbers, money, capitalised words) failed:
+    on real prose notes it produced verbs like "Fonctionne" and single words like
+    "Monka", and the model then had nothing correct to select. Coverage matters more
+    than precision here, because a Choice cannot pick a value that is not offered.
+
+    So this walks every short contiguous word window in the sentence, which is
+    deterministic and always contains the right answer for a short value. The model's
+    job is to select the informative one, which is the part it is actually good at.
+    """
+    tokens = re.findall(r"[\w€$%.,+-]+", text)
+    spans: list[str] = []
+    for size in (4, 3, 2, 1):
+        for start in range(0, max(0, len(tokens) - size + 1)):
+            span = " ".join(tokens[start:start + size]).strip(" .,;:")
+            if 2 <= len(span) <= 60:
+                spans.append(span)
+    # Prefer longer spans when truncated: they carry more meaning.
+    return list(dict.fromkeys(spans))[:24]
+
+
+def build_extraction_questions(candidates: list[dict[str, Any]], note_title: str = "") -> dict[str, Any]:
     questions: dict[str, Any] = {}
     for candidate in candidates:
         cid = candidate["id"]
@@ -147,16 +215,14 @@ def build_extraction_questions(candidates: list[dict[str, Any]]) -> dict[str, An
         }
         # Extraction is a *selection* from the given text, so ask for the parts by
         # name and keep the original span verbatim for traceability.
+        entity_options = {e: None for e in candidate_entities(candidate["text"], note_title)}
         questions[f"subject::{cid}"] = {
             "type": "choice",
             "instructions": (
-                f"If candidate_sentences[id={cid}] is a factual assertion, which entity "
-                "is it about? Answer with the option whose description matches the text."
+                f"Which candidate_entities entry is the entity that candidate_sentences[id={cid}] "
+                "asserts something about? If none is a specific entity, choose no_specific_entity."
             ),
-            "criteria": {
-                "named_entity": "The sentence is about a specific named entity (person, company, product, project, place).",
-                "no_specific_entity": "There is no single specific named entity it is about.",
-            },
+            "criteria": {**entity_options, "no_specific_entity": "No single specific named entity."},
         }
         questions[f"relation::{cid}"] = {
             "type": "choice",
@@ -186,6 +252,26 @@ def build_extraction_questions(candidates: list[dict[str, Any]]) -> dict[str, An
                 "implied_only": "No - the value would have to be inferred rather than copied.",
             },
         }
+        value_options = {v: None for v in candidate_values(candidate["text"])}
+        if value_options:
+            questions[f"object::{cid}"] = {
+                "type": "choice",
+                "instructions": (
+                    f"Which candidate_values entry is the value that candidate_sentences[id={cid}] "
+                    "asserts about its subject? Choose the one stated by the sentence."
+                ),
+                "criteria": value_options,
+            }
+        date_options = {d: None for d in candidate_dates(candidate["text"])}
+        if date_options:
+            questions[f"valid_from::{cid}"] = {
+                "type": "choice",
+                "instructions": (
+                    f"Which candidate_dates entry is the date on which candidate_sentences[id={cid}] "
+                    "became true? If none is stated, choose no_date_stated."
+                ),
+                "criteria": {**date_options, "no_date_stated": "The sentence states no date."},
+            }
         questions[f"when::{cid}"] = {
             "type": "choice",
             "instructions": (
@@ -217,7 +303,7 @@ def extract(api_key: str, args: argparse.Namespace, vault: Path) -> int:
         api_key, args.model,
         {"note": {"title": note["title"], "type": note["type"]},
          "candidate_sentences": candidates},
-        build_extraction_questions(candidates),
+        build_extraction_questions(candidates, note["title"]),
     )
     answers = response.get("answers", {})
 
@@ -227,24 +313,43 @@ def extract(api_key: str, args: argparse.Namespace, vault: Path) -> int:
         cid = candidate["id"]
         is_fact = answers.get(f"is_fact::{cid}", {})
         score = float(is_fact.get("score", 0.0))
-        subject = answers.get(f"subject::{cid}", {}).get("choice")
+        subject_kind = answers.get(f"subject::{cid}", {}).get("choice")
+        subject_name = None if subject_kind == "no_specific_entity" else subject_kind
         value_kind = answers.get(f"value::{cid}", {}).get("choice")
         entry = {
             "span": candidate["text"],
             "source": note["slug"],
             "is_fact_score": round(score, 2),
-            "subject_kind": subject,
+            "subject_kind": subject_kind,
             "relation_kind": answers.get(f"relation::{cid}", {}).get("choice"),
             "value_kind": value_kind,
             "date_kind": answers.get(f"when::{cid}", {}).get("choice"),
             "world_claim": round(float(answers.get(f"is_world_claim::{cid}", {}).get("noul", 0.0)), 2),
+            "object": answers.get(f"object::{cid}", {}).get("choice"),
+            "valid_from": answers.get(f"valid_from::{cid}", {}).get("choice"),
         }
         # Only surface candidates the model actually scored as assertions, and only
         # when the value can be copied verbatim. An inferred value is exactly the
         # low-precision case the extraction numbers warn about.
         is_world_claim = float(answers.get(f"is_world_claim::{cid}", {}).get("noul", 0.0))
-        if (score >= args.min_score and subject == "named_entity"
-                and value_kind == "explicit" and is_world_claim >= args.min_world_claim):
+        object_value = answers.get(f"object::{cid}", {}).get("choice")
+        stated_date = answers.get(f"valid_from::{cid}", {}).get("choice")
+        # Every accepted proposal must be complete enough to write: a subject, a
+        # bounded relation, a value that is verbatim in the sentence, and a date. A
+        # missing date defaults to the extraction date and says so, rather than being
+        # silently invented.
+        if (score >= args.min_score and subject_name
+                and value_kind == "explicit" and is_world_claim >= args.min_world_claim
+                and object_value and object_value in candidate["text"]):
+            entry["subject"] = subject_name
+            entry["relation"] = answers.get(f"relation::{cid}", {}).get("choice")
+            entry["object"] = object_value
+            if stated_date and stated_date != "no_date_stated":
+                entry["valid_from"] = stated_date
+                entry["date_basis"] = "stated in the sentence"
+            else:
+                entry["valid_from"] = args.today
+                entry["date_basis"] = f"not stated; defaults to the extraction date {args.today}"
             proposed.append(entry)
         else:
             rejected.append(entry)
@@ -261,7 +366,7 @@ def extract(api_key: str, args: argparse.Namespace, vault: Path) -> int:
         "rejected_detail": [
             {"span": r["span"][:110], "score": r["is_fact_score"],
              "why": "meta/provenance, not a world claim" if r.get("world_claim", 1.0) < args.min_world_claim
-                    else "not a specific assertion" if r["subject_kind"] != "named_entity"
+                    else "not a specific assertion" if not r["subject_kind"] or r["subject_kind"] == "no_specific_entity"
                     else "value not verbatim" if r["value_kind"] != "explicit"
                     else "below score threshold"}
             for r in rejected
@@ -506,6 +611,8 @@ def main(argv: list[str]) -> int:
     # (roughly 0.0-2.0, not 0-3), so a "high" gate rejects everything. Real
     # assertions landed at 1.7-2.0 while action items and plans landed at 0.03-0.10,
     # so the useful cut is near the middle, not the top. Re-measure per corpus.
+    parser.add_argument("--today", default=__import__("datetime").date.today().isoformat(),
+                        help="date used when a sentence states none")
     parser.add_argument("--min-world-claim", type=float, default=0.5,
                         help="minimum probability that the sentence is a world claim, not document bookkeeping")
     parser.add_argument("--min-score", type=float, default=1.4,
