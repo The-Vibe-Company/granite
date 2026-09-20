@@ -14,6 +14,8 @@ import {
   type GardenAdjudicationReasonCode,
 } from '../core/garden-adjudications.js';
 import { extractDocument as extractDocumentFromFile, type ExtractDocumentResult } from '../core/extract-document.js';
+import { buildFactLedger, currentStateOf, factsFromNotes, type Contradiction, type Fact } from '../core/facts.js';
+import { findAlignmentCandidates, planAlignment, readEntityNotes, type AlignmentPlan } from '../core/entities.js';
 import { importDocument as importDocumentToVault } from '../core/import-document.js';
 import { resolveText, suggestStub, type ResolveMatch } from '../core/resolve.js';
 import { runQuery, type Query, type QueryResult } from '../core/query.js';
@@ -554,6 +556,60 @@ export class GraniteMcpRuntime {
         info: issues.filter(issue => issue.level === 'info').length,
       },
       issues,
+    };
+  }
+
+  /**
+   * Read the fact ledger: which facts are current, which were superseded, and which
+   * contradict each other.
+   *
+   * The ledger is deterministic and lives here rather than in the tool handler, so an
+   * agent can ask "what is current about X" without deciding it itself. Contradictions
+   * are reported and never resolved, because automatic resolution was measured to
+   * retire true facts far too often.
+   */
+  facts(input: { subject?: string; relation?: string } = {}): {
+    total: number;
+    current: Fact[];
+    contradictions: Contradiction[];
+    superseded: Array<{ fact: Fact; superseded_by?: string; reason: string }>;
+    entries: Array<{ fact: Fact; status: string; superseded_by?: string; reason: string }>;
+  } {
+    this.refreshIndex();
+    const ledger = buildFactLedger(factsFromNotes(this.readAllNotes()));
+    const superseded = ledger.entries
+      .filter(entry => entry.status === 'superseded')
+      .map(entry => ({ fact: entry.fact, superseded_by: entry.superseded_by, reason: entry.reason }));
+
+    if (input.subject) {
+      const current = currentStateOf(ledger, input.subject, input.relation);
+      return { total: ledger.entries.length, current, contradictions: ledger.contradictions, superseded, entries: ledger.entries };
+    }
+    return { total: ledger.entries.length, current: ledger.current, contradictions: ledger.contradictions, superseded, entries: ledger.entries };
+  }
+
+  /**
+   * Find notes that may describe the same thing.
+   *
+   * Detection is deterministic (identical folded titles, or an alias claimed twice) and
+   * the result separates what is safe to apply from what needs a decision. Nothing is
+   * merged or rewritten here.
+   */
+  entities(input: { types?: string[] } = {}): {
+    scanned: number;
+    candidates: number;
+    planned_aliases: AlignmentPlan['aliases'];
+    review: AlignmentPlan['review'];
+  } {
+    this.refreshIndex();
+    const notes = readEntityNotes(this.db, input.types);
+    const candidates = findAlignmentCandidates(notes);
+    const plan = planAlignment(candidates);
+    return {
+      scanned: notes.length,
+      candidates: candidates.length,
+      planned_aliases: plan.aliases,
+      review: plan.review,
     };
   }
 
