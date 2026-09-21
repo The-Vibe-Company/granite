@@ -182,4 +182,50 @@ describe('MCP graph access tools', () => {
     const pool = await client.callTool({ name: 'granite_pool', arguments: { anchor: 'no-such-note' } });
     expect(pool.isError).toBe(true);
   });
+
+  it('returns the pool as structure, not only as prose', async () => {
+    // The deterministic half exists to feed the semantic half: a judge is handed this pool.
+    // A caller forced to re-parse markdown would be re-deriving what this tool hands over.
+    const result = await client.callTool({ name: 'granite_pool', arguments: { anchor: 'monka-care' } });
+    const pool = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+    expect(pool).toBeDefined();
+    expect(typeof pool?.anchor).toBe('string');
+    expect(typeof pool?.reachable).toBe('number');
+    const candidates = pool?.candidates as Array<Record<string, unknown>>;
+    expect(Array.isArray(candidates)).toBe(true);
+    expect(candidates.length).toBeGreaterThan(0);
+    for (const candidate of candidates) {
+      expect(typeof candidate.slug).toBe('string');
+      expect(typeof candidate.title).toBe('string');
+      expect(typeof candidate.distance).toBe('number');
+      expect(Array.isArray(candidate.sentences)).toBe(true);
+    }
+    // The prose is still there for a model to read.
+    expect(textOf(result)).toContain('# Candidate pool around');
+  });
+
+  it('returns the entity as structure with contexts and both counts', async () => {
+    const result = await client.callTool({
+      name: 'granite_about',
+      arguments: { slug: 'monka-care', types: ['meeting'] },
+    });
+    const entity = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+    expect(entity).toBeDefined();
+    expect(entity?.counts).toEqual({ incoming: 2, outgoing: 0 });
+    // The unfiltered totals travel too, so a reader can tell an empty filter from an
+    // entity nothing points at.
+    expect(entity?.unfiltered_counts).toEqual({ incoming: 3, outgoing: 0 });
+    const incoming = entity?.incoming as Record<string, Array<{ contexts: string[] }>>;
+    expect(Object.keys(incoming)).toEqual(['meeting']);
+    expect(incoming.meeting[0].contexts.length).toBeGreaterThan(0);
+    expect(entity?.filtered_by).toEqual(['meeting']);
+  });
+
+  it('declares an output schema for both tools', async () => {
+    const tools = (await client.listTools()).tools;
+    for (const name of ['granite_about', 'granite_pool']) {
+      const tool = tools.find(candidate => candidate.name === name);
+      expect(tool?.outputSchema, `${name} should declare an output schema`).toBeDefined();
+    }
+  });
 });
