@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.24...granite-mem-v0.2.0) (2026-09-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* require Jev, and judge every capture ([#81](https://github.com/The-Vibe-Company/granite/issues/81))
+
+### Features
+
+* **mcp:** permit Jev, move the judgment into Granite, and remove the vault-garden skill ([#78](https://github.com/The-Vibe-Company/granite/issues/78)) ([594e8ea](https://github.com/The-Vibe-Company/granite/commit/594e8ead5b949dc1b8484a4b4c4283bbc6bb4649))
+* require Jev, and judge every capture ([#81](https://github.com/The-Vibe-Company/granite/issues/81)) ([4dee31f](https://github.com/The-Vibe-Company/granite/commit/4dee31fa89c3b8ee65c95752eddc68efa5e13faf))
+
+
+### Bug Fixes
+
+* **pool:** the depth caveat counts notes, and pin the real sampling behaviour ([#80](https://github.com/The-Vibe-Company/granite/issues/80)) ([7e9d4db](https://github.com/The-Vibe-Company/granite/commit/7e9d4dba18b79665af53508c6314979dad77a882))
+
 ## [0.1.24](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.23...granite-mem-v0.1.24) (2026-09-21)
 
 
