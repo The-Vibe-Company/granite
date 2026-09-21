@@ -307,6 +307,9 @@ export async function judgePool(
 /** Above this `noul` probability a capture-time link is proposed. Controls read 0.99/0.01. */
 export const LINK_THRESHOLD = 0.5;
 
+/** The `choice` fallback sentinel. A vault type with this name gets a distinct option key. */
+const OTHER_TYPE = 'OTHER';
+
 export interface LinkProposal {
   target: string;
   target_title: string;
@@ -390,23 +393,26 @@ export async function proposeLinks(
   // `OTHER` is the fallback a `choice` needs: without one the model still picks from the
   // closed set on input that fits nothing, which is how a note gets routed to a type it is not.
   if (types.length > 0) {
+    // The fallback key must not collide with a declared type. Spreading it last meant a vault
+    // that legitimately declares a type named like the sentinel lost that type's criterion.
+    const fallbackKey = types.includes(OTHER_TYPE) ? `${OTHER_TYPE}_OPTION` : OTHER_TYPE;
     questions.note_type = {
       type: 'choice',
       instructions: 'Which single type best describes new_note?',
       criteria: {
         ...Object.fromEntries(types.map(t => [t, `A ${t} note.`])),
-        OTHER: 'None of the declared types fits.',
+        [fallbackKey]: 'None of the declared types fits.',
       },
     };
   }
-  if (tagVocabulary.length > 0) {
-    questions.tags = {
-      type: 'choice',
-      instructions: 'Which of these existing tags apply to new_note?',
-      criteria: {
-        ...Object.fromEntries(tagVocabulary.map(t => [t, `The ${t} tag applies.`])),
-        none: 'None of them apply.',
-      },
+  // Tags are multi-label, so this is several `noul`s and not one `choice`: a `choice` is a
+  // closed set with a fallback, which can express "one of these" but not "any of these,
+  // possibly several". The earlier single-`choice` version could only ever return one tag.
+  for (const tag of tagVocabulary) {
+    questions[`tag::${tag}`] = {
+      type: 'noul',
+      instructions: `Does the existing tag "${tag}" apply to new_note?`,
+      criteria: { true: `The ${tag} tag applies.`, false: `It does not apply.` },
     };
   }
 
@@ -427,27 +433,17 @@ export async function proposeLinks(
   }
   proposed.sort((a, b) => b.link_probability - a.link_probability);
 
-  const noteType = answers.note_type?.choice;
-  const pickedTags: string[] = [];
-  const chosenTags = answers.tags?.choice;
-  if (typeof chosenTags === 'string' && chosenTags !== 'none' && chosenTags !== '') {
-    // A single tag name, or several when the caller permits multi-select.
-    for (const tag of String(chosenTags).split(',')) {
-      const trimmed = tag.trim();
-      if (tagVocabulary.includes(trimmed)) pickedTags.push(trimmed);
-    }
-    if (tagVocabulary.includes(String(chosenTags))) {
-      pickedTags.length = 0;
-      pickedTags.push(String(chosenTags));
-    }
-  }
+  const rawType = answers.note_type?.choice;
+  // The fallback sentinel is not a note type, and returning it verbatim proposed `OTHER` as one.
+  const noteType = typeof rawType === 'string' && rawType !== OTHER_TYPE ? rawType : undefined;
+  const pickedTags = tagVocabulary.filter(tag => (answers[`tag::${tag}`]?.noul ?? 0) >= LINK_THRESHOLD);
 
   return {
     note: note.slug,
     proposed,
     rejected,
     not_judged: 0,
-    note_type: typeof noteType === 'string' ? noteType : undefined,
+    note_type: noteType,
     tags: pickedTags.length > 0 ? pickedTags : undefined,
   };
 }

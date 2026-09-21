@@ -160,6 +160,12 @@ export interface EntityPool {
    */
   sentences_omitted?: boolean;
   /**
+   * True when the transport ceiling trimmed the pool below the requested limit. The remedy for
+   * this is NOT "raise `limit`" — the request would be rejected — so the caller is told which
+   * bound actually applied.
+   */
+  trimmed_by_transport?: boolean;
+  /**
    * Real notes sitting one hop beyond the walked depth. Zero means the walk covered
    * everything adjacent to what it saw; non-zero means a depth-capped pool is a boundary,
    * not a complete answer.
@@ -406,7 +412,11 @@ export function entityPool(
   const sentenceCount = options.sentences
     ?? (deliveredCount > CANDIDATES_THAT_FIT_WITH_SENTENCES ? 0 : 6);
   const sentencesOmitted = sentenceCount === 0 && options.sentences === undefined;
-  const effectiveLimit = Math.min(limit, sentenceCount > 0 ? MAX_CANDIDATES : REQUEST_CEILING_CANDIDATES);
+  // Sentences are what makes a request large, so the tight ceiling belongs to the branch that
+  // carries them. Inverted (sentences -> 255), `granite_answer(limit: 141)` on a hub sends the
+  // ~142 KB body the measurement above records as HTTP 400, and the judge throws with no answer.
+  const effectiveLimit = Math.min(limit, sentenceCount > 0 ? REQUEST_CEILING_CANDIDATES : MAX_CANDIDATES);
+  const trimmedByTransport = effectiveLimit < limit;
 
   for (const [slug, hop] of ordered) {
     // The limit is applied after the existence filter, so a dangling target does not
@@ -451,6 +461,7 @@ export function entityPool(
     by_distance: byDistance,
     beyond_depth: beyondDepth.size,
     sentences_omitted: sentencesOmitted,
+    trimmed_by_transport: trimmedByTransport,
   };
 }
 
@@ -537,7 +548,15 @@ export function renderPoolMarkdown(pool: EntityPool): string {
       const note = band.shown < band.reachable ? `  (${band.reachable - band.shown} not returned)` : '';
       lines.push(`- distance ${band.distance}: ${band.shown} returned of ${band.reachable}${note}`);
     }
-    lines.push('', 'If the note you expect is not here, it may be one of the ones not returned: raise `limit` or lower `depth` rather than concluding the vault does not have it.');
+    lines.push(
+      '',
+      pool.trimmed_by_transport
+        ? 'The transport ceiling trimmed this pool, so raising `limit` will NOT return more with '
+          + 'sentences: one batched request cannot carry that many. Ask again with `sentences: 0` '
+          + 'to see the whole neighbourhood, or narrow with `depth`.'
+        : 'If the note you expect is not here, it may be one of the ones not returned: raise '
+          + '`limit` or lower `depth` rather than concluding the vault does not have it.',
+    );
   }
   if (pool.beyond_depth > 0) {
     lines.push('', `Depth bound reached: ${pool.beyond_depth} further note(s) sit one hop beyond the walked depth. `

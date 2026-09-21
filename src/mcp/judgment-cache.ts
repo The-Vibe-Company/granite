@@ -18,7 +18,17 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 
-const MODEL_VERSION = 'v1';
+/**
+ * Bumped whenever the QUESTION SHAPE changes — the option sets, the criteria wording, or the
+ * questions asked — because those move verdicts as surely as a model swap does. This PR
+ * measured exactly that: adding the type and tag questions shifted 1 of 14 link decisions.
+ * It is folded into the hash rather than stored in a column, so a bump invalidates every
+ * entry by construction instead of relying on someone comparing it.
+ */
+const QUESTION_SHAPE = 'q2';
+
+/** How long a judgment stays valid without the source changing. Bounded by vocabulary drift. */
+export const DEFAULT_MAX_AGE_DAYS = 30;
 
 function ensureTable(db: Database.Database): void {
   db.prepare(`
@@ -35,9 +45,18 @@ function ensureTable(db: Database.Database): void {
   `).run();
 }
 
-/** Hash the part of a note a judgment depends on: its wording. */
-export function sourceHash(title: string, body: string): string {
-  return createHash('sha256').update(`${title}\n${body}`).digest('hex').slice(0, 32);
+/**
+ * Hash everything the judgment depends on: the source's wording, the candidate's title (it is
+ * in both the state and the criteria), and the question shape.
+ *
+ * The candidate title is included because a renamed candidate still matching through an alias
+ * would otherwise re-use a verdict whose `true` criterion names the old title.
+ */
+export function sourceHash(title: string, body: string, candidateTitle = '', shape = QUESTION_SHAPE): string {
+  return createHash('sha256')
+    .update(`${shape}\u0000${title}\n${body}\u0000${candidateTitle}`)
+    .digest('hex')
+    .slice(0, 32);
 }
 
 export interface CachedVerdict {
@@ -101,9 +120,10 @@ export function readCachedJudgments(
   } catch {
     return out; // a read-only or locked database simply has no cache
   }
-  const cutoff = args.maxAgeDays === undefined
-    ? null
-    : new Date(Date.now() - args.maxAgeDays * 86_400_000).toISOString();
+  // A default age limit, because the option sets (tags, types) are read fresh per call and can
+  // change without the source note changing. Without it the only invalidation is a source edit.
+  const maxAgeDays = args.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
+  const cutoff = new Date(Date.now() - maxAgeDays * 86_400_000).toISOString();
 
   try {
     const stmt = db.prepare(`
@@ -142,7 +162,7 @@ export function writeCachedJudgments(
     const now = new Date().toISOString();
     const insertAll = db.transaction((rows: CachedVerdict[]) => {
       for (const v of rows) {
-        stmt.run(args.sourceSlug, args.hash, v.candidate, args.model, MODEL_VERSION, v.probability, now);
+        stmt.run(args.sourceSlug, args.hash, v.candidate, args.model, '', v.probability, now);
       }
     });
     insertAll(args.verdicts);

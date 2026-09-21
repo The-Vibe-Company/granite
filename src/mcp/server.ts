@@ -1228,19 +1228,28 @@ function readBearerToken(header: string | undefined): string | null {
  * three-in-four judgment into three-in-four wikilinks, and a wrong wikilink is silent.
  */
 function renderProposedLinks(summary: string, proposed?: LinkProposalResult): string {
-  if (!proposed || proposed.proposed.length === 0) {
-    if (proposed && proposed.not_judged > 0) {
-      return `${summary}\n\nLink proposals: Jev could not judge ${proposed.not_judged} candidate(s); nothing was written.`;
-    }
-    return summary;
+  if (!proposed) return summary;
+  const parts: string[] = [summary];
+
+  // Routing, which used to be computed and cached but never shown on this path — the two extra
+  // questions cost a measured 1-in-14 link shift and bought the caller nothing.
+  const routing: string[] = [];
+  if (proposed.note_type && proposed.note_type !== 'OTHER') {
+    routing.push(`- type: \`${proposed.note_type}\``);
   }
-  const lines = proposed.proposed.map(
-    link => `- [[${link.target}]] — ${link.target_title} (p=${link.link_probability})`,
-  );
-  return [
-    summary,
-    '',
-    `Proposed links (${proposed.proposed.length}) — review before applying, nothing is written:`,
-    ...lines,
-  ].join('\n');
+  if (proposed.tags?.length) routing.push(`- tags: ${proposed.tags.map(t => `\`${t}\``).join(', ')}`);
+  if (routing.length > 0) {
+    parts.push('', 'Proposed routing — review before applying, nothing is written:', ...routing);
+  }
+
+  if (proposed.proposed.length > 0) {
+    parts.push(
+      '',
+      `Proposed links (${proposed.proposed.length}) — review before applying, nothing is written:`,
+      ...proposed.proposed.map(link => `- [[${link.target}]] — ${link.target_title} (p=${link.link_probability})`),
+    );
+  } else if (proposed.not_judged > 0) {
+    parts.push('', `Jev could not judge ${proposed.not_judged} link candidate(s); nothing was written.`);
+  }
+  return parts.join('\n');
 }
