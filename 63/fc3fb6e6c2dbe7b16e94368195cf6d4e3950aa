@@ -1,0 +1,16 @@
+src/mcp/server.ts
+  h_ecee222750141d 492-521,525-534,546-561,565-568
+test/mcp/server-graph-access.test.ts
+  h_ecee222750141d 185-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "63fc3fb6e6c2dbe7b16e94368195cf6d4e3950aa",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
