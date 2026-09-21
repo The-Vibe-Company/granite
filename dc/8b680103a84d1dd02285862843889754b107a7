@@ -1,0 +1,18 @@
+skills/vault-garden/references/jev-ingestion.md
+  h_ecee222750141d 56-100,105-107,137-171
+skills/vault-garden/scripts/jev_ingest.py
+  h_ecee222750141d 1-367
+skills/vault-garden/scripts/test_jev_ingest.py
+  h_ecee222750141d 1-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dc8b680103a84d1dd02285862843889754b107a7",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
