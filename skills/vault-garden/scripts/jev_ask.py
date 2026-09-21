@@ -71,15 +71,23 @@ def sentences(body: str, limit: int) -> list[str]:
     headings while the shipped extractor dropped them, so the set it judged was not the set
     the product produces and the calibration in this file described an unreproducible run.
 
-    The one deliberate difference is the frontmatter strip. The shipped path receives
-    gray-matter output, where frontmatter is already gone, so it must **not** strip (a body
-    can legitimately open with a horizontal rule). This prototype reads raw note bodies,
-    where frontmatter is still present, so it must.
+    There is deliberately **no frontmatter strip**. An earlier version carried one, on the
+    assumption that this reads raw note files. It reads the index database, whose `body`
+    column is already post-frontmatter — verified across all 761 notes, none begins with a
+    delimiter — so the strip could only ever fire on a real body that opens with a
+    horizontal rule, deleting the content between the rules. That is the same mistake
+    `src/core/about.ts` documents at length, and the fix is the same: do not have the strip.
+
+    Divergences from the canonical implementation are confined to Unicode edge cases that
+    neither the product nor the calibration corpus exercises — the 30..400 window counts
+    UTF-16 units in JS and code points here, the two languages disagree on a few whitespace
+    code points (U+FEFF, U+001C-001F), and a list marker preceded by a tab is stripped by JS
+    and kept here. `test_jev_ask.py` checks this copy against the sentences the shipped CLI
+    actually emits, so real drift fails there instead of quietly changing what gets judged.
     """
     if limit <= 0:
         return []
-    text = re.sub(r"\A---\n[\s\S]*?\n---\s*", " ", body)
-    text = re.sub(r"```[\s\S]*?```", " ", text)
+    text = re.sub(r"```[\s\S]*?```", " ", body)
     text = re.sub(r"^#{1,6}\s.*$", " ", text, flags=re.M)
     out: list[str] = []
     for raw in re.split(r"(?<=[.!?])\s+|\n+", text):
