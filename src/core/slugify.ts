@@ -23,9 +23,17 @@ export function slugify(title: string): string {
  * `some-long-title-`.
  *
  * Trying `<slug>-` after `<slug>` repairs those links without renaming any file.
+ *
+ * Order matters when a vault holds *both* `foo.md` and the legacy `foo-.md`: a
+ * target written with the separator (`[[foo-]]`) names the legacy note explicitly
+ * and must keep that form first, otherwise it silently binds to `foo.md` and leaves
+ * `foo-.md` reachable by no wikilink at all.
  */
 export function slugVariants(target: string): string[] {
   const slug = slugify(target);
   if (!slug) return [];
-  return [slug, `${slug}-`];
+  const separatorSuffixed = `${slug}-`;
+  return target.trim().endsWith('-')
+    ? [separatorSuffixed, slug]
+    : [slug, separatorSuffixed];
 }

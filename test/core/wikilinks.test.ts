@@ -108,12 +108,19 @@ describe('resolveWikilinks', () => {
     }
   });
 
-  it('prefers an exact slug over a legacy separator-suffixed slug', () => {
+  it('binds each spelling to its own note when both slug forms exist', () => {
+    // A vault can hold both `ambiguous.md` and a legacy `ambiguous-.md`. Each target
+    // must reach its own note; collapsing `[[ambiguous-]]` onto `ambiguous` would
+    // leave the legacy note reachable by no wikilink and misroute its backlinks.
     const both = [
       makeNote('ambiguous', 'Ambiguous'),
       makeNote('ambiguous-', 'Ambiguous legacy'),
     ];
-    const resolved = resolveWikilinks(parseWikilinks('See [[ambiguous]].'), both);
-    expect(resolved[0].resolved_slug).toBe('ambiguous');
+
+    const bare = resolveWikilinks(parseWikilinks('See [[ambiguous]].'), both);
+    expect(bare[0].resolved_slug).toBe('ambiguous');
+
+    const legacy = resolveWikilinks(parseWikilinks('See [[ambiguous-]].'), both);
+    expect(legacy[0].resolved_slug).toBe('ambiguous-');
   });
 });

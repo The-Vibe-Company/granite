@@ -58,4 +58,12 @@ describe('slugify', () => {
     expect(slugVariants('Some Note')).toEqual(['some-note', 'some-note-']);
     expect(slugVariants('')).toEqual([]);
   });
+
+  it("keeps the author's separator form first when the target ends with a separator", () => {
+    // A vault can hold both `foo.md` and the legacy `foo-.md`. A target written with
+    // the separator names the legacy note, so collapsing it onto `foo` first would
+    // hand the link and its backlinks to the wrong note.
+    expect(slugVariants('foo-')).toEqual(['foo-', 'foo']);
+    expect(slugVariants('Some Note-')).toEqual(['some-note-', 'some-note']);
+  });
 });
