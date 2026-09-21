@@ -77,8 +77,9 @@ granite_pool(anchor)       # the bounded candidate set worth judging
 granite_answer(question, anchor)   # judge a question inside that set
 ```
 
-`granite_about` and `granite_pool` are deterministic and need no key; `granite_answer`
-is the one that calls a model, and it reports itself unavailable without one.
+`granite_about` and `granite_pool` are deterministic and need no key. Every tool that
+judges is backed by Jev, which Granite requires: without a TypeSafe key the server and
+the CLI refuse to start rather than return answers they cannot stand behind.
 
 Link-worthiness is a different question from near-duplicate detection in step 2. Do
 not use those tools to decide that two notes are the same note: a synthesis and the
