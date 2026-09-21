@@ -377,7 +377,10 @@ export function entityPool(
   // answer and can actually be sent. Measured across limits 20/30/40/60/87/100: the figure is
   // cited at 60 and above and not below — so this sits exactly on the boundary that works.
   const DEFAULT_NEAREST = 60;
-  const MAX_CANDIDATES = 255;
+  // Measured: titles-only costs ~0.615 KB per candidate, and ~0.8 KB on the densest anchor, so
+  // the byte ceiling is crossed at ~160-205 — below 255, which meant `granite_answer` with the
+  // very `sentences: 0` remedy its own message recommends could be refused. 200 leaves room.
+  const MAX_CANDIDATES = 200;
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_NEAREST, MAX_CANDIDATES));
 
   // `noteExists` is prepared above, before the depth caveat needs it; the per-hop counts and

@@ -49,6 +49,59 @@ const TIMEOUT_MS = 60_000;
  */
 export const MAX_REQUEST_BYTES = 130_000;
 
+/**
+ * Rough bytes a serialized entry costs, measured rather than guessed: a candidate carrying six
+ * sentences and its share of the questions is ~2.05 KB, one carrying none ~0.615 KB.
+ */
+const BYTES_PER_CANDIDATE_WITH_SENTENCES = 2100;
+const BYTES_PER_CANDIDATE_TITLES_ONLY = 640;
+
+/**
+ * The budget a pool may occupy once the caller's question is accounted for.
+ *
+ * The question is restated inside every `ev::` instruction, once per candidate, so its length
+ * is multiplied by the pool size: measured, `granite_answer` at its own default exceeded the
+ * byte ceiling for an ordinary 80-character question while a 45-character one passed. That
+ * makes the ceiling a function of the question, not a constant — so the caller declares how
+ * much room the question needs and the pool trims to what is left.
+ */
+export function poolByteBudget(question: string, ceiling = MAX_REQUEST_BYTES): number {
+  // The question appears once per candidate plus once in the noul question; 60 bytes per
+  // character is the measured multiplier at the pool sizes involved.
+  return ceiling - question.length * 60;
+}
+
+/**
+ * Trim sentences from the farthest candidates until the pool fits its byte budget.
+ *
+ * Refusing instead would fail on ordinary questions at the tool's own default. Sentences are the
+ * thing to give up, not candidates: candidates are the recall, sentences are an excerpt, and the
+ * farthest notes are both the cheapest to lose and the least likely to hold the answer.
+ */
+export function trimToByteBudget<T extends { sentences: string[] }>(
+  candidates: T[],
+  budget: number,
+  sentencesPerNote: number,
+): T[] {
+  const costOf = (withSentences: number, titles: number) =>
+    withSentences * BYTES_PER_CANDIDATE_WITH_SENTENCES + titles * BYTES_PER_CANDIDATE_TITLES_ONLY;
+
+  if (costOf(candidates.length, 0) <= budget) return candidates;
+
+  // First give up the sentences of the farthest candidates, keeping the nearest ones readable.
+  const keepSentences = Math.max(0, Math.floor((budget - candidates.length * BYTES_PER_CANDIDATE_TITLES_ONLY)
+    / BYTES_PER_CANDIDATE_WITH_SENTENCES));
+  if (keepSentences < candidates.length) {
+    candidates = candidates.map((candidate, index) => (index < keepSentences
+      ? candidate
+      : { ...candidate, sentences: [] as string[] }));
+  }
+
+  // Then, if even titles do not fit, drop the farthest candidates.
+  const affordable = Math.max(1, Math.floor(budget / BYTES_PER_CANDIDATE_TITLES_ONLY));
+  return candidates.length > affordable ? candidates.slice(0, affordable) : candidates;
+}
+
 export class RequestTooLargeError extends Error {
   readonly code = 'request_too_large';
   constructor(bytes: number) {
@@ -177,13 +230,17 @@ export async function postQuestions(
 
 /** The pool as the state Jev reads: the question, then one entry per candidate. */
 export function buildState(pool: EntityPool, question: string) {
+  // The question is restated inside every `ev::` instruction, so its length multiplies against
+  // the pool size. Trimming here — rather than refusing upstream — is what keeps an ordinary
+  // 80-character question working at the tool's own default pool size.
+  const trimmed = trimToByteBudget(pool.candidates, poolByteBudget(question), 6);
   return {
     // The question MUST be in the state. Every `rel::` question says "the question" without
     // restating it, and questions are evaluated independently, so a state without it asks
     // Jev to score relevance to nothing. The ranking, `top_score` and the verdict all come
     // from those scores, and the thresholds were calibrated with the question present.
     question,
-    candidate_notes: pool.candidates.map(candidate => ({
+    candidate_notes: trimmed.map(candidate => ({
       id: candidate.slug,
       title: candidate.title,
       type: candidate.type,
@@ -202,6 +259,9 @@ export function buildState(pool: EntityPool, question: string) {
  * note holding the figure.
  */
 export function buildAnswerQuestions(pool: EntityPool, questionText: string): Record<string, unknown> {
+  // Must be the same trim `buildState` applies, or a question is asked about a candidate whose
+  // sentences the state no longer carries.
+  const candidates = trimToByteBudget(pool.candidates, poolByteBudget(questionText), 6);
   const questions: Record<string, unknown> = {
     // Reported as context, never used as the decision. An absolute "does the pool hold an
     // answer?" was measured giving a false negative on a pool whose answer sat at rank 3
@@ -218,7 +278,7 @@ export function buildAnswerQuestions(pool: EntityPool, questionText: string): Re
     },
   };
 
-  for (const candidate of pool.candidates) {
+  for (const candidate of candidates) {
     const id = candidate.slug;
     questions[`rel::${id}`] = {
       type: 'score',

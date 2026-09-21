@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import { entityPool } from '../../src/core/about.js';
-import { buildAnswerQuestions, buildState, evidenceSentence, postQuestions } from '../../src/mcp/judge.js';
+import {
+  MAX_REQUEST_BYTES,
+  buildAnswerQuestions,
+  buildState,
+  evidenceSentence,
+  postQuestions,
+} from '../../src/mcp/judge.js';
 
 /**
  * The judge layer is the one place Granite calls a model, so its contract has two halves
@@ -206,5 +212,58 @@ describe('the request byte ceiling is enforced where the rejection happens', () 
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+});
+
+describe('the byte budget follows the question, not a constant', () => {
+  const widePool = () => {
+    const d = new (require('better-sqlite3'))(':memory:') as Database.Database;
+    d.exec(`
+      CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, status TEXT, body TEXT);
+      CREATE TABLE links (source_slug TEXT, target_slug TEXT, target_raw TEXT, context TEXT);
+    `);
+    const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)');
+    const link = d.prepare('INSERT INTO links VALUES (?,?,?,?)');
+    note.run('hub', 'Hub', 'organization', 'active', 'The anchor.');
+    const long = 'Une phrase suffisamment longue pour etre retenue comme candidate et occuper de la place dans la requete envoyee au modele de jugement.';
+    for (let i = 0; i < 80; i++) {
+      note.run(`n${i}`, `Note ${i}`, 'note', 'active', `${long} ${long}`);
+      link.run(`n${i}`, 'hub', 'hub', `ref ${i}`);
+    }
+    return d;
+  };
+
+  it('trims sentences from the farthest candidates for a long question instead of refusing', () => {
+    // The regression: the question is restated inside every `ev::` instruction, once per
+    // candidate, so its length multiplies against the pool. A 45-character question passed at
+    // the default while an ordinary 80-character one was REFUSED — and the error blamed the
+    // candidate count, not the question.
+    const d = widePool();
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    const short = buildState(pool, 'What does it cost?');
+    const long = buildState(pool, 'What exactly does the client pay for managed hosting, including the monthly figure and the committed total over the whole term, and who invoices it?');
+
+    const size = (state: unknown) => Buffer.byteLength(JSON.stringify(state), 'utf8');
+    expect(size(short)).toBeLessThan(MAX_REQUEST_BYTES);
+    expect(size(long)).toBeLessThan(MAX_REQUEST_BYTES);
+    // Both still carry the nearest candidates; only the farthest lose their sentences.
+    const withSentences = (state: any) => state.candidate_notes.filter((c: any) => Object.keys(c.sentences).length > 0).length;
+    expect(withSentences(short)).toBeGreaterThan(withSentences(long));
+    expect(withSentences(long)).toBeGreaterThan(0);
+    d.close();
+  });
+
+  it('asks about exactly the candidates the state carries', () => {
+    // Asking about a candidate whose sentences the state dropped would be a question about
+    // nothing, and its `ev::` choice would have an empty option set.
+    const d = widePool();
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    const q = 'What exactly does the client pay for managed hosting, including the monthly figure over the whole term?';
+    const state: any = buildState(pool, q);
+    const questions = buildAnswerQuestions(pool, q);
+    const inState = new Set(state.candidate_notes.map((c: any) => c.id));
+    const asked = new Set(Object.keys(questions).filter(k => k.startsWith('rel::')).map(k => k.slice(5)));
+    expect([...asked].sort()).toEqual([...inState].sort());
+    d.close();
   });
 });

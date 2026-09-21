@@ -561,7 +561,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     inputSchema: {
       anchor: z.string().describe('Slug of the note to grow the pool around.'),
       depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
-      limit: z.number().int().min(1).optional().describe('Maximum candidates to return. Defaults to the whole nearest graph band, which is bounded by the vault; by_distance reports exactly what a smaller limit left out.'),
+      limit: z.number().int().min(1).max(200).optional().describe('Maximum candidates to return. Defaults to the whole nearest graph band, which is bounded by the vault; by_distance reports exactly what a smaller limit left out. The upper bound is measured: a request above it exceeds what the API accepts.'),
       sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 returns titles only. Defaults to 6, or to 0 when the nearest band is large — titles make a big neighbourhood affordable to see, and the response says when sentences were omitted.'),
     },
     // The pool is also returned as `structuredContent`, not only as prose, because the
@@ -604,7 +604,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       question: z.string().describe('The question to answer from the vault.'),
       anchor: z.string().describe('Slug of the note to grow the candidate set around — an entity, a client, a project.'),
       depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
-      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number; each candidate adds one score and one evidence question to a single batched request, so a larger pool costs little more time.'),
+      limit: z.number().int().min(1).max(200).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number. Bounded by two measurements: sentences are trimmed from the farthest candidates to keep the batched request under the API byte ceiling, and the pool is capped at 200 because a larger one cannot be sent at all.'),
       sentences: z.number().int().min(0).optional().describe('Candidate sentences per note. Defaults to 6 here: judging needs the text, which is why this tool never takes the titles-only default that granite_pool uses for a large neighbourhood.'),
     },
     outputSchema: {
