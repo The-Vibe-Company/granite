@@ -1,0 +1,18 @@
+skills/vault-garden/scripts/jev_ask.py
+  h_ecee222750141d 15,18-20,40,65-80,83-88,91-93,221-224
+src/commands/about.ts
+  h_ecee222750141d 72-74,79-85
+test/commands/about.test.ts
+  h_ecee222750141d 39,41,111-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f1c485979400d21fb81127cb17e5c9fa415e0933",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
