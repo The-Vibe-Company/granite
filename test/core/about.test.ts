@@ -521,11 +521,15 @@ describe('sampling invariants', () => {
 
   it('keeps the opening of a long body, which a bare stride dropped', () => {
     // Round-1 finding: a pure stride returned [0,1,3,4,6,7] at n=8/limit=6 and lost indices
-    // 2 and 5 that the old prefix kept.
+    // 2 and 5 that the old prefix kept. Both are back. Index 4 is NOT: the set already holds
+    // `limit` entries, so the backfill never runs, and index 4 only returns at limit >= 7.
+    // That residue is accepted and recorded — asserting it would pin the limitation as if it
+    // were intended.
     const all = allOf(8);
     const indices = candidateSentences(bodyOf(8), 6).map(s => all.indexOf(s));
     expect(indices).toContain(2);
     expect(indices).toContain(5);
+    expect(indices).not.toContain(4);
   });
 });
 
@@ -574,6 +578,28 @@ describe('the depth bound is reported too, not only the limit', () => {
     const pool = entityPool(d, 'monka-care', { sentences: 0 })!;
     const perHop = pool.by_distance.reduce((total, band) => total + band.reachable, 0);
     expect(pool.reachable).toBe(perHop);
+    d.close();
+  });
+});
+
+describe('the depth caveat counts notes, not dangling links', () => {
+  it('ignores a dangling link target beyond the walked depth', () => {
+    // The reviewer's case: the existing test put its dangling target at depth 1, where it
+    // lands in `distance` and is removed anyway, so it could not catch this. Here the dangling
+    // target is one hop BEYOND the walk, which is the only place the count reads it.
+    const d = db();
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'not-a-note', 'not-a-note', 'x');
+    const capped = entityPool(d, 'monka-care', { depth: 1, sentences: 0 })!;
+    expect(capped.beyond_depth).toBe(0);
+    d.close();
+  });
+
+  it('still counts a real note beyond the walked depth', () => {
+    const d = db();
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)')
+      .run('far-a', 'Far', 'note', 'active', 'Two hops from the anchor.');
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'far-a', 'far-a', 'x');
+    expect(entityPool(d, 'monka-care', { depth: 1, sentences: 0 })!.beyond_depth).toBe(1);
     d.close();
   });
 });
