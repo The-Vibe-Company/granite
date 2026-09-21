@@ -536,7 +536,9 @@ describe('the byte budget follows the real wire body, not a constant', () => {
     // made them disagree — 200 candidates against 201, and 194 against 201 at 5,000 bytes. Every
     // builder now takes the name, so the sets agree by construction.
     // The pool is built by hand because it has to sit on the boundary for the model name to matter:
-    // 255 titles whose body is 128,005 B before any reserve, so the fitting prefix moves with it.
+    // 255 titles whose body is already over the ceiling before any reserve, so the fitting prefix
+    // moves with the name. The size is asserted below rather than quoted, because it depends on the
+    // exact question string and a comment that guesses it drifts.
     const candidates = Array.from({ length: 255 }, (_, i) => ({
       slug: `note-${i}`,
       title: `Note number ${i} about the client engagement`,
@@ -552,7 +554,9 @@ describe('the byte budget follows the real wire body, not a constant', () => {
       by_distance: [{ distance: 1, reachable: 255, shown: 255 }],
       beyond_depth: 0,
     };
-    // The fixture must be able to fail: a 5,000-byte model name has to shrink the selection.
+    // The fixture must be able to fail: the pool is over the ceiling, and a 5,000-byte model name
+    // has to shrink the selection.
+    expect(requestBytes(pool, longQuestion)).toBeGreaterThan(MAX_REQUEST_BYTES);
     expect(selectCandidates(pool, longQuestion, 'm'.repeat(5_000)).length)
       .toBeLessThan(selectCandidates(pool, longQuestion).length);
     for (const modelName of ['', 'jev-1.13.0', 'm'.repeat(300), 'm'.repeat(5_000)]) {
