@@ -1,0 +1,34 @@
+src/commands/add.ts
+  h_ecee222750141d 8-9,11,41-50,58,76-82
+src/index.ts
+  h_ecee222750141d 2,104-105,621-639
+src/mcp/judge.ts
+  h_ecee222750141d 9-12,18-32,69,87,93-108,306-392
+src/mcp/link-capture.ts
+  h_ecee222750141d 1-60
+src/mcp/runtime.ts
+  h_ecee222750141d 17-18,285-292,953-988
+src/mcp/server.ts
+  h_ecee222750141d 27,31,34,171-174,425-429,448-452,601,610,636-638,1223-1246
+test/mcp/judge.test.ts
+  h_ecee222750141d 156-186
+test/mcp/link-capture.test.ts
+  h_ecee222750141d 1-81
+test/mcp/server-graph-access.test.ts
+  h_ecee222750141d 239-242,246-250
+test/setup.ts
+  h_ecee222750141d 1-13
+vitest.config.ts
+  h_ecee222750141d 6-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7e1f93395765c3dc2f202407b614307cf62e551b",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
