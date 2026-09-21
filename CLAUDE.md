@@ -17,6 +17,54 @@ Granite (`granite` CLI) is a local-first markdown memory system for humans and a
   - Prefer improving tool descriptions, prompts, and deterministic planning logic over adding another endpoint.
   - If a new endpoint is necessary, it must have one clear role in the workflow and no ambiguous overlap with existing endpoints.
 
+### The one permitted model: Jev
+
+**Jev (TypeSafe System One) is the single exception**, and it is an exception of
+kind, not of degree: it is a *classifier*, not a generative model. It returns a
+`choice`, a `score` or a `noul` probability over a bounded set — typed values code
+branches on. It never writes prose, never plans, and never runs a loop.
+
+- **`src/core/` stays pure.** No network call, no API key, no model reference. The
+  graph walk, sentence selection and thresholds are deterministic and must remain
+  testable without a key.
+- **`src/mcp/` may call Jev**, so Granite can bound a candidate set deterministically
+  and then *delegate the semantic judgment* instead of asking the calling agent to
+  orchestrate it. This respects the rule above rather than breaking it: intelligence
+  still lives outside Granite, it is only Granite that is allowed to invoke it.
+- **Opt-in, and it fails closed.** Without `TYPESAFE_API_KEY` the feature reports
+  `unavailable` and the rest of Granite — every other tool, the whole CLI — works
+  unchanged. This follows the existing `ferrules` PDF-extractor precedent: resolve an
+  external tool, degrade clearly when it is absent.
+- **The boundary that does not move:** no embeddings, no vector store, no generative
+  text, no autonomous loop, no scheduler, no telemetry. Jev answers questions about a
+  set Granite chose; it never chooses what to look at.
+
+Anything else that would think on Granite's behalf is still out of bounds, and the
+answer to "can this be deterministic?" is still yes by default.
+
+#### Measured constraints on that one model call
+
+These were paid for in API calls and hand-labelling. They are the reason the judge layer
+looks the way it does, so they belong with the rule rather than in a skill that can move.
+
+- **Rank inside a set; never judge a pair in isolation.** A pair judged alone separated
+  nothing (AUC 0.56); the same content presented as a set separated cleanly (AUC 0.973).
+- **Batch one request per set.** Measured 12.2x cheaper and 10x faster than one call per
+  item, with identical answers.
+- **Do not pass already-linked neighbours as extra state.** Recall fell 0.89 → 0.50 while
+  the cost doubled.
+- **Derive absence from the ranking, never from an absolute question.** An absolute "does
+  this pool hold an answer?" Noul returned 0.25 on a pool whose answer sat at rank 3 — a
+  false negative, the worst failure a second brain can produce. Report it as context; do not
+  gate on it. `ANSWERED_AT` / `ABSENT_BELOW` sit between the measured values.
+- **State the question when asking which sentence answers it.** "Which sentence carries the
+  answer?" made Jev abstain at 0.77 while the sentence holding the figure sat in the list at
+  0.10; restating the question moved that sentence to 0.96.
+- **Do not ask for dates as dates** (correct 1 time in 9) and **do not auto-apply extracted
+  facts** (0.75 precision, and the failure is silent). Propose; let a policy or a human decide.
+- **Do not build**: note decay or forgetting (the canonical citation never measured an
+  effect), or automatic retirement (wrong on 70% of facts across two independent corpora).
+
 Preferred workflow layers:
 - orient
 - research

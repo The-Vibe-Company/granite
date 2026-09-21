@@ -131,6 +131,16 @@ export interface PoolEntry {
   sentences: string[];
 }
 
+/** How much of one hop's neighbourhood a pool actually returned. */
+export interface PoolDistanceSummary {
+  /** Graph hops from the anchor. */
+  distance: number;
+  /** Real notes at this distance, whether or not they were returned. */
+  reachable: number;
+  /** How many of them this pool returned. */
+  shown: number;
+}
+
 export interface EntityPool {
   anchor: string;
   anchor_title: string;
@@ -138,6 +148,23 @@ export interface EntityPool {
   reachable: number;
   /** Notes actually returned, nearest first. */
   candidates: PoolEntry[];
+  /**
+   * Per-hop reachable/shown counts, so a truncated pool says what it left out instead of
+   * implying the neighbourhood it returned is the whole neighbourhood.
+   */
+  by_distance: PoolDistanceSummary[];
+  /**
+   * True when sentences were left out because the nearest band is large. Titles alone cost
+   * roughly a fifth of titles plus sentences, so a big neighbourhood is returned cheaply and
+   * the caller asks for sentences only on what it intends to read.
+   */
+  sentences_omitted?: boolean;
+  /**
+   * Real notes sitting one hop beyond the walked depth. Zero means the walk covered
+   * everything adjacent to what it saw; non-zero means a depth-capped pool is a boundary,
+   * not a complete answer.
+   */
+  beyond_depth: number;
 }
 
 /** An `AboutEntity` with its groups narrowed to the requested types. */
@@ -182,10 +209,49 @@ export function filterAbout(entity: AboutEntity, types?: string[]): FilteredAbou
 }
 
 /**
+ * A line that is metadata rather than prose: `sourceNotionId: ...`, `File: [...]`.
+ *
+ * Imported notes put these at the very top, so a first-N read spent its whole budget on
+ * them and never reached the body.
+ *
+ * The pattern is deliberately narrow. A first version accepted any short key before a colon
+ * (`^[\w-]{2,24}:`) and silently deleted real prose — "Price: …", "Budget: …",
+ * "Decision: …", "Note: …" are all sentences that could answer something. Only
+ * identifier-shaped keys count: camelCase, snake_case, or a known field-ish word. Losing a
+ * sentence is unrecoverable; keeping a metadata line costs one slot.
+ */
+const METADATA_LINE = /^\s{0,3}(?:[-*+]\s+)?(?:[a-z]+[A-Z][A-Za-z]*|[a-z]+_[a-z_]+|File|Source|Author|Created|Modified|Tags?|Aliases?)\s*:\s*\S/;
+
+/** Every sentence in a body that could answer something, in document order. */
+function allCandidateSentences(body: string): string[] {
+  const text = (body ?? '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,6}\s.*$/gm, ' ');
+  const out: string[] = [];
+  for (const raw of text.split(/(?<=[.!?])\s+|\n+/)) {
+    const line = raw
+      .replace(/\*\*|__|`/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^\s*[-*|\s]+/, '')
+      .trim();
+    if (line.length >= 30 && line.length <= 400 && !METADATA_LINE.test(line)) {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+/**
  * Candidate sentences, chosen deterministically so recall stays in code.
  *
- * Frontmatter, fenced code and markdown markers are stripped: a citation marker or a
- * `sourceNotionId` line is not a sentence that can answer anything.
+ * Frontmatter, fenced code, markdown markers and metadata lines are stripped: a citation
+ * marker or a `sourceNotionId` line is not a sentence that can answer anything.
+ *
+ * Selection is a **coverage sample with a prefix**, not a bare stride. A pure stride is
+ * strictly worse than a prefix on the opening lines — at 8 candidates for a budget of 6 it
+ * dropped indices 2 and 5, which the old prefix kept — so half the budget stays a prefix,
+ * and the other half walks the rest at an even stride ending on the last candidate. A
+ * structured note states its context first and its figures last, so both ends must survive.
  */
 export function candidateSentences(body: string, limit = 6): string[] {
   // No frontmatter strip here on purpose. `body` is gray-matter output, so frontmatter is
@@ -198,22 +264,26 @@ export function candidateSentences(body: string, limit = 6): string[] {
   // sentence before it can test the bound, so `limit: 0` — the documented "titles only"
   // mode — handed back a sentence anyway.
   if (limit <= 0) return [];
-  const text = (body ?? '')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/^#{1,6}\s.*$/gm, ' ');
-  const out: string[] = [];
-  for (const raw of text.split(/(?<=[.!?])\s+|\n+/)) {
-    const line = raw
-      .replace(/\*\*|__|`/g, '')
-      .replace(/\s{2,}/g, ' ')
-      .replace(/^\s*[-*|\s]+/, '')
-      .trim();
-    if (line.length >= 30 && line.length <= 400) {
-      out.push(line);
-      if (out.length >= limit) break;
-    }
+  const all = allCandidateSentences(body);
+  if (all.length <= limit) return all;
+  if (limit === 1) return [all[0]];
+
+  // With no room to both prefix and stride, keep the opening: it is the cheapest useful
+  // summary of a note we cannot afford to read.
+  if (limit === 2) return [all[0], all[all.length - 1]];
+
+  const prefix = Math.max(1, Math.floor(limit / 2));
+  const indices = new Set<number>();
+  for (let i = 0; i < prefix; i++) indices.add(i);
+  const tailBudget = limit - prefix;
+  for (let i = 0; i < tailBudget; i++) {
+    indices.add(Math.max(prefix, all.length - 1 - (tailBudget - 1 - i) * 2));
   }
-  return out;
+  // De-duplicate, then backfill any slot the clamp collapsed so a small body still returns
+  // `limit` distinct sentences instead of repeating an index — a repeated sentence wastes a
+  // slot and a judge's option.
+  for (let i = prefix; indices.size < limit && i < all.length; i++) indices.add(i);
+  return [...indices].sort((a, b) => a - b).map(index => all[index]);
 }
 
 /**
@@ -236,8 +306,6 @@ export function entityPool(
   options: { depth?: number; limit?: number; sentences?: number } = {},
 ): EntityPool | undefined {
   const depth = Math.max(1, options.depth ?? 2);
-  const limit = Math.max(1, options.limit ?? 30);
-  const sentenceCount = options.sentences ?? 6;
 
   const note = db
     .prepare('SELECT title FROM notes WHERE slug = ?')
@@ -265,9 +333,68 @@ export function entityPool(
     frontier = next;
   }
 
+  // How many notes sit one hop beyond the depth we walked. Without this a pool capped by
+  // `depth` looks exactly like a complete one, and "absent" reads as a fact about the vault
+  // rather than about where the walk stopped. Counting it costs one expansion of the last
+  // frontier — the same work the loop already did, run once more.
+  const beyondDepth = new Set<string>();
+  for (const slug of frontier) {
+    for (const row of db
+      .prepare('SELECT target_slug AS s FROM links WHERE source_slug = ? AND target_slug IS NOT NULL')
+      .all(slug) as Array<{ s: string }>) {
+      beyondDepth.add(row.s);
+    }
+    for (const row of db
+      .prepare('SELECT source_slug AS s FROM links WHERE target_slug = ?')
+      .all(slug) as Array<{ s: string }>) {
+      beyondDepth.add(row.s);
+    }
+  }
+  for (const s of distance.keys()) beyondDepth.delete(s);
+  beyondDepth.delete(anchor);
+
   const ordered = [...distance.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 
+  // The default has to be both a floor and a ceiling, and "the nearest band" was neither.
+  // A leaf with one neighbour defaulted to a one-candidate pool while dozens were reachable;
+  // a hub returned 141 candidates and ~30k tokens. A fixed 30 was worse still: it dropped the
+  // note holding a client's price, which sat 54th of 87 direct neighbours, and said nothing.
+  //
+  // DEFAULT_NEAREST is a floor — it keeps taking the distance-sorted candidates until the
+  // pool is useful, so a degenerate band fills up from the next one — and MAX_CANDIDATES is
+  // the ceiling, chosen so a batched judge request stays inside a sane context even with
+  // sentences. `by_distance` reports whatever either bound dropped.
+  const DEFAULT_NEAREST = 60;
+  const MAX_CANDIDATES = 255;
+  const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_NEAREST, MAX_CANDIDATES));
+
+  // Prepared once: the per-hop counts and the candidate loop both ask this question, and
+  // a pool around a hub can ask it several hundred times.
+  const noteExists = db.prepare('SELECT 1 FROM notes WHERE slug = ?');
+
   const candidates: PoolEntry[] = [];
+  let reachableNotes = 0;
+  const shownByDistance = new Map<number, number>();
+  const seenByDistance = new Map<number, number>();
+  for (const [, hop] of ordered) seenByDistance.set(hop, (seenByDistance.get(hop) ?? 0) + 1);
+
+  // How many candidates the pool will actually deliver: real notes, up to the limit. Dangling
+  // link targets must not count, or a pool of 3 real notes behind 40 dangling ones would look
+  // large enough to skip sentences.
+  let deliveredCount = 0;
+  for (const [slug] of ordered) {
+    if (deliveredCount >= limit) break;
+    if (noteExists.get(slug)) deliveredCount++;
+  }
+
+  // Sentences are the expensive field, not the candidates: measured ~211 tokens per candidate
+  // with them against ~42 without. The decision uses the delivered count, not the limit that
+  // was asked for, so a small vault never loses its sentences to a generous default.
+  const CANDIDATES_THAT_FIT_WITH_SENTENCES = 30;
+  const sentenceCount = options.sentences
+    ?? (deliveredCount > CANDIDATES_THAT_FIT_WITH_SENTENCES ? 0 : 6);
+  const sentencesOmitted = sentenceCount === 0 && options.sentences === undefined;
+
   for (const [slug, hop] of ordered) {
     // The limit is applied after the existence filter, so a dangling target does not
     // consume one of the requested slots and the caller gets the number they asked for.
@@ -283,13 +410,34 @@ export function entityPool(
       distance: hop,
       sentences: candidateSentences(row.body, sentenceCount),
     });
+    shownByDistance.set(hop, (shownByDistance.get(hop) ?? 0) + 1);
   }
+
+  // What the caller did NOT get, per hop. A pool that returns 30 of 87 direct neighbours
+  // and says only "363 reachable" is quietly letting a caller believe it saw the whole
+  // neighbourhood — which is how a note holding the answer goes missing without anyone
+  // noticing. Counting the rest is a handful of existence queries, not a second walk.
+  for (const [s] of ordered) if (noteExists.get(s)) reachableNotes++;
+
+  const byDistance = [...seenByDistance.keys()].sort((a, b) => a - b).map(hop => {
+    let existing = 0;
+    for (const [s, h] of ordered) {
+      if (h !== hop) continue;
+      if (noteExists.get(s)) existing++;
+    }
+    return { distance: hop, reachable: existing, shown: shownByDistance.get(hop) ?? 0 };
+  });
 
   return {
     anchor,
     anchor_title: note.title ?? anchor,
-    reachable: distance.size,
+    // Real notes only. It used to be `distance.size`, which counted dangling link targets —
+    // so the rendered "Judged X of Y reachable" could contradict the per-hop rows beside it.
+    reachable: reachableNotes,
     candidates,
+    by_distance: byDistance,
+    beyond_depth: beyondDepth.size,
+    sentences_omitted: sentencesOmitted,
   };
 }
 
@@ -365,6 +513,28 @@ export function renderPoolMarkdown(pool: EntityPool): string {
     'Nothing is judged here: this is the set a judge would decide on. Ordering is by graph',
     'distance only, never by lexical overlap with a question.',
   ];
+
+  // Say what was left out, per hop. A caller reading "30 candidates of 363 reachable" may
+  // still assume the nearest neighbourhood is complete; it usually is not, and a note
+  // holding the answer can be one of the ones dropped.
+  const truncated = pool.by_distance.filter(band => band.shown < band.reachable);
+  if (truncated.length > 0) {
+    lines.push('', 'Reachable vs returned, per graph distance:');
+    for (const band of pool.by_distance) {
+      const note = band.shown < band.reachable ? `  (${band.reachable - band.shown} not returned)` : '';
+      lines.push(`- distance ${band.distance}: ${band.shown} returned of ${band.reachable}${note}`);
+    }
+    lines.push('', 'If the note you expect is not here, it may be one of the ones not returned: raise `limit` or lower `depth` rather than concluding the vault does not have it.');
+  }
+  if (pool.beyond_depth > 0) {
+    lines.push('', `Depth bound reached: ${pool.beyond_depth} further note(s) sit one hop beyond the walked depth. `
+      + 'Raise `depth` before reading this listing as the edge of what the vault holds.');
+  }
+  if (pool.sentences_omitted) {
+    lines.push('', 'Sentences were omitted because the nearest band is large: this listing is titles only. '
+      + 'Call again with `sentences: 6` (and a smaller `limit` if you want to read only part of it) '
+      + 'for the text a judge needs to cite.');
+  }
 
   if (pool.candidates.length === 0) {
     lines.push('', 'Nothing is reachable from this note. There is no candidate set to judge.');

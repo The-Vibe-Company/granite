@@ -68,18 +68,21 @@ Apply what makes sense:
 - Create follow-up notes if recommend suggests them
 
 When lexical matching finds nothing for a note that clearly belongs somewhere,
-the optional semantic layer can help. It lives in `/vault-garden` — lint
-diagnoses, so route the fix there rather than duplicating the code:
+the graph and the semantic layer can help. Lint diagnoses, so route the fix to the
+MCP tools rather than duplicating the logic here:
 
-```bash
-granite suggest-links <slug> --json          # lexical only, no model, no key
-python3 ../vault-garden/scripts/jev_judge.py judge <slug> --limit 12
+```
+granite_about(slug)        # what the vault already knows, through the links
+granite_pool(anchor)       # the bounded candidate set worth judging
+granite_answer(question, anchor)   # judge a question inside that set
 ```
 
-That helper judges **link-worthiness**, which is a different question from the
-near-duplicate detection in step 2. Do not use it to decide that two notes are
-the same note: a synthesis and the entity note it compiles are a good link and a
-bad merge at once. See `../vault-garden/references/jev-semantic-layer.md`.
+`granite_about` and `granite_pool` are deterministic and need no key; `granite_answer`
+is the one that calls a model, and it reports itself unavailable without one.
+
+Link-worthiness is a different question from near-duplicate detection in step 2. Do
+not use those tools to decide that two notes are the same note: a synthesis and the
+entity note it compiles are a good link and a bad merge at once.
 
 ### 5. Detect Compilation Opportunities
 

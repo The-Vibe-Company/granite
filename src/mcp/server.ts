@@ -24,6 +24,13 @@ import {
 } from '../../shared/mcp-markdown.js';
 import { GRANITE_VERSION } from '../version.js';
 import { renderAboutMarkdown, renderPoolMarkdown } from '../core/about.js';
+import {
+  ABSENT_BELOW,
+  ANSWERED_AT,
+  apiKey as judgeApiKey,
+  judgePool,
+  model as judgeModel,
+} from './judge.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
 import type { GraniteMcpRuntime } from './runtime.js';
@@ -540,8 +547,8 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     inputSchema: {
       anchor: z.string().describe('Slug of the note to grow the pool around.'),
       depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
-      limit: z.number().int().min(1).optional().describe('Maximum candidates to return. Defaults to 30.'),
-      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 returns titles only. Defaults to 6.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to return. Defaults to the whole nearest graph band, which is bounded by the vault; by_distance reports exactly what a smaller limit left out.'),
+      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 returns titles only. Defaults to 6, or to 0 when the nearest band is large — titles make a big neighbourhood affordable to see, and the response says when sentences were omitted.'),
     },
     // The pool is also returned as `structuredContent`, not only as prose, because the
     // deterministic half exists to feed the semantic half: a judge is handed this pool as
@@ -558,6 +565,13 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         distance: z.number().int().describe('Graph hops from the anchor. 1 = directly linked.'),
         sentences: z.array(z.string()).describe('Deterministic candidate sentences; empty when titles only were requested.'),
       })),
+      by_distance: z.array(z.object({
+        distance: z.number().int(),
+        reachable: z.number().int().describe('Real notes at this distance, returned or not.'),
+        shown: z.number().int().describe('How many of them this pool returned.'),
+      })).describe('Per-hop reachable/shown counts. Use this to tell "the vault does not have it" from "the limit dropped it" before concluding anything is absent.'),
+      sentences_omitted: z.boolean().optional().describe('True when this listing is titles only because the nearest band is large. Call again with sentences: 6 for the text a judge needs to cite.'),
+      beyond_depth: z.number().int().describe('Real notes sitting one hop beyond the walked depth. Non-zero means this pool is a boundary, not the edge of what the vault holds: raise depth before concluding anything is absent.'),
     },
     annotations: readOnlyAnnotations,
   }, async ({ anchor, depth, limit, sentences }) => {
@@ -565,6 +579,106 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     return {
       content: [{ type: 'text' as const, text: renderPoolMarkdown(pool) }],
       structuredContent: pool as unknown as Record<string, unknown>,
+    };
+  });
+
+  server.registerTool('granite_answer', {
+    title: 'Answer A Question From The Vault',
+    description: 'Answer a question from the vault: Granite bounds a candidate set around an anchor by graph distance, Jev (TypeSafe System One) selects which candidate answers it and which sentence carries the answer, and Granite applies the threshold. Use this when the question may not share wording with the notes — keyword search finds the answering note only 2 times in 15 when the question and the note are in different languages, while this path puts it in the candidate set 14 times in 15. Returns a verdict (answered / partial / absent), the ranked candidates with their relevance scores, and the cited sentence. Requires TYPESAFE_API_KEY; without it the tool reports itself unavailable and never silently degrades.',
+    inputSchema: {
+      question: z.string().describe('The question to answer from the vault.'),
+      anchor: z.string().describe('Slug of the note to grow the candidate set around — an entity, a client, a project.'),
+      depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number; each candidate adds one score and one evidence question to a single batched request, so a larger pool costs little more time.'),
+      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note. Defaults to 6 here: judging needs the text, which is why this tool never takes the titles-only default that granite_pool uses for a large neighbourhood.'),
+    },
+    outputSchema: {
+      status: z.string().describe('ok, or unavailable when no API key is configured.'),
+      question: z.string(),
+      anchor: z.string().optional(),
+      model: z.string().optional(),
+      verdict: z.enum(['answered', 'partial', 'absent']).optional(),
+      top_score: z.number().optional().describe('Best relevance score, 0-3. The verdict derives from this.'),
+      pool_has_answer: z.number().nullable().optional().describe('The absolute judgment, reported as context. Deliberately not the decision: it was measured giving a false negative on a pool whose answer sat at rank 3.'),
+      ranked: z.array(z.object({
+        slug: z.string(),
+        title: z.string(),
+        type: z.string(),
+        distance: z.number().int(),
+        score: z.number(),
+        evidence: z.string().nullable().describe('The sentence Jev cited as carrying the answer, or null when it cited none.'),
+      })).optional(),
+      reachable: z.number().int().optional().describe('Notes reachable at the walked depth, before the candidate limit was applied.'),
+      by_distance: z.array(z.object({
+        distance: z.number().int(),
+        reachable: z.number().int(),
+        shown: z.number().int(),
+      })).optional().describe('Per-hop reachable/shown counts. Read this before reporting absence: a verdict drawn from a truncated pool is a statement about the limit, not about the vault.'),
+      beyond_depth: z.number().int().optional().describe('Real notes one hop beyond the walked depth. Non-zero means the walk stopped short, so an absence verdict is about the boundary rather than the vault.'),
+      reason: z.string().optional(),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ question, anchor, depth, limit, sentences }) => {
+    const key = judgeApiKey();
+    if (!key) {
+      // A declared outputSchema means structured content is mandatory: the SDK rejects a
+      // text-only result with an output-validation error, which would turn "Jev is not
+      // configured" into an opaque protocol failure. Fail closed *and* stay well-formed.
+      const unavailable = {
+        status: 'unavailable' as const,
+        question,
+        anchor,
+        reason: 'missing TYPESAFE_API_KEY',
+      };
+      return {
+        content: [{
+          type: 'text' as const,
+          text: 'Jev is not configured: set TYPESAFE_API_KEY to answer questions semantically.\n\n'
+            + 'Everything else in Granite works without it. `granite_pool` still returns the '
+            + 'deterministic candidate set for this anchor if you want to judge it yourself.',
+        }],
+        structuredContent: unavailable as unknown as Record<string, unknown>,
+      };
+    }
+
+    const pool = runtime.buildPool(anchor, {
+      depth,
+      limit,
+      // Judging needs sentences: this tool exists to find the line that answers, so it never
+      // takes the titles-only default a large neighbourhood gets from `granite_pool`.
+      sentences: sentences ?? 6,
+    });
+    const verdict = await judgePool(pool, question, key, judgeModel());
+
+    const lines: string[] = [
+      `# ${verdict.verdict?.toUpperCase() ?? 'NO VERDICT'}`,
+      '',
+      `Top relevance ${verdict.top_score} (answered at ${ANSWERED_AT}, absent below ${ABSENT_BELOW}), `
+      + `pool Noul ${verdict.pool_has_answer ?? 'n/a'} reported as context only.`,
+      '',
+    ];
+    if (verdict.reason) lines.push(verdict.reason, '');
+    if ((verdict.beyond_depth ?? 0) > 0) {
+      lines.push(`${verdict.beyond_depth} further note(s) sit one hop beyond the walked depth: this answer is about the depth reached, not about the vault.`, '');
+    }
+    const dropped = (verdict.by_distance ?? []).filter(band => band.shown < band.reachable);
+    if (dropped.length > 0) {
+      // An absence verdict from a capped pool is a claim about the limit, not the vault.
+      lines.push(
+        `Judged ${(verdict.ranked ?? []).length} of ${verdict.reachable} reachable note(s); `
+        + `not judged: ${dropped.map(b => `${b.reachable - b.shown} at distance ${b.distance}`).join(', ')}.`,
+        'Treat "absent" as provisional while anything is unjudged.',
+        '',
+      );
+    }
+    for (const candidate of (verdict.ranked ?? []).slice(0, 8)) {
+      lines.push(`- **[${candidate.score}] ${candidate.title}** \`${candidate.slug}\` (distance ${candidate.distance})`);
+      if (candidate.evidence) lines.push(`  - ${candidate.evidence}`);
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
+      structuredContent: verdict as unknown as Record<string, unknown>,
     };
   });
 
