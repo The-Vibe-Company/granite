@@ -53,13 +53,58 @@ was semantic, not arithmetic. The
 is the fix: ask for the *parts* as `Choice` over enumerated options with an explicit "not
 stated", then resolve and validate in code.
 
+## Prototyped: the capture-time proposal layer
+
+`skills/vault-garden/scripts/jev_ingest.py` implements the deterministic half above and was
+run against the whole vault. It detects verbatim entity mentions (titles and aliases, reusing
+the same normalisation as `src/core/entities.ts`), emits link candidates with the sentence
+that justifies each one, and builds the judge request body for them. It calls no model and
+writes nothing.
+
+### The measurement that changed the design
+
+Raw verbatim detection is **almost all noise**, and the number is worth keeping:
+
+| | on 106 orphan notes |
+| --- | --- |
+| orphans mentioning some note title verbatim | 63 |
+| candidate mentions produced | 77 |
+| …pointing at a name that appears in **>100** notes | 47 |
+| …appearing in 21-100 notes | 25 |
+| …appearing in 4-20 notes | 2 |
+| …appearing in <= 3 notes | 3 |
+
+47 of 77 propose a link to `Granite` — a name that appears in 348 of 761 notes, because the
+vault is largely *about* Granite. "The note contains the word Granite" is not a link set, and
+a judge shown only the string cannot tell a client from the vocabulary.
+
+So the useful filter is the entity's **document frequency in the vault**, not the mention:
+keeping candidates whose name appears in at most 5 notes leaves **4 of 106 orphans**, and
+all four are correct on inspection:
+
+| orphan | proposed link | why it is right |
+| --- | --- | --- |
+| article by Christophe Pasquier | `christophe-pasquier` | the article is by the person |
+| EXYSTAT HDS migration note | `theodo` | "Marine Accolas (Theodo HealthTech) introduced Stan" |
+| Karpathy essay (source) | `karpathy llm wiki` | "same author, same knowledge-compilation idea" |
+| Mediagen monthly committee | `constant-thomas-bpifrance-bpi` | "relaunch Constant Thomas about BPI access" |
+
+That is a **4% recovery of the orphan problem** from the part of the job code can do for free,
+with high precision. It is deliberately small: the point is not that this fixes 106 orphans,
+it is that the deterministic layer's job is to hand a judge a *short, defensible* set rather
+than a plausible-looking list of 63. Anything claiming to close the rest of the gap is
+claiming a detection capability Jev does not have (see *What not to build*).
+
+`--max-frequency 0` disables the filter to inspect the raw signal, and `--questions <slug>`
+emits the batch request body for the judge step without consuming an API key.
+
 ## The shape ingestion should take
 
 ```
 capture
-  -> code:  entity mentions, graph candidates, source span        (deterministic, free)
-  -> Jev:   select real connections; route type/tags             (bounded selection)
-  -> code:  thresholds, provenance gate, write                    (policy)
+  -> code:  entity mentions, graph candidates, source span, document frequency (deterministic, free)
+  -> Jev:   select real connections; route type/tags                        (bounded selection)
+  -> code:  thresholds, provenance gate, write                              (policy)
 ```
 
 The note should be born connected. Today it is born an orphan and the connection is
@@ -89,8 +134,41 @@ add already-linked neighbours to the state as reference: measured recall fell fr
 `granite search` finds the note that answers a question only **13%** of the time when the
 question is asked in a different language than the note was written in (`2/15` on a real
 vault), and it failed even on `migration`, a word identical in both languages that appears
-in 43 notes. The graph is language-independent, so it supplies recall and a model supplies
-the selection.
+in 43 notes.
+
+### The funnel, measured end to end on the same 15 queries
+
+The graph does **not** replace the lexical search, and it does not by itself answer the
+question. Re-running the same 15 cross-language queries through the graph measures three
+distinct stages, and the middle one is the whole point of the split:
+
+| Stage | Result | What it means |
+| --- | --- | --- |
+| `granite search` (lexical, cross-language) | **2/15** | today's shipped failure |
+| graph reachability (target inside a grown pool) | **14/15** | the graph supplies recall: the answer is nearly always *in* the set |
+| graph distance alone (target in the first 30) | **3/15** | ordering by distance is barely better than lexical: the graph does not supply selection |
+
+Median rank of the target by graph distance is around 60, with a tail out to 474. So the
+honest claim is narrow and worth stating precisely: **the graph turns "the note is not in
+the result set" into "the note is in the set, at an unknown rank", and a model has to
+supply the rank.** That is what `granite pool` plus a judge is for, and it is why the
+division of labour below is not arbitrary.
+
+This also confirms, with numbers, the rule already recorded under *What not to build*: a
+graph-traversal API is not a primary retrieval mode. Using `granite about`/`pool` as a
+*semantic* search replacement would land at roughly the lexical baseline, because both
+answer the recall question and neither answers the selection question.
+
+### The absence signal: a measured deviation from the original design
+
+The original design asked a separate Noul — "does this pool contain an answer?" — with
+FOUND/ABSENT thresholds. It was measured and it **failed**: on the case whose answer sat at
+rank 3 it returned 0.25 against a 0.35 threshold, a false negative, i.e. it said "nothing
+here" about a pool that did contain the answer. A false "the vault does not know this" is
+the worst failure mode available to a second brain, so the signal was moved to the ranking.
+The thresholds in the shipped code are therefore `ANSWERED_AT` / `ABSENT_BELOW`, not
+FOUND/ABSENT, and they are derived from the ranking not from an absolute judgment. The
+deviation is deliberate and measured; the reasoning is in the next section.
 
 The split that keeps the product boundary intact:
 
