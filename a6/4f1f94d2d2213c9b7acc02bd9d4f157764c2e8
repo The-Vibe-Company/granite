@@ -1,0 +1,16 @@
+src/core/entities.ts
+  h_ecee222750141d 197-217
+test/core/entities.test.ts
+  h_ecee222750141d 100-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a64f1f94d2d2213c9b7acc02bd9d4f157764c2e8",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
