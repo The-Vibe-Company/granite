@@ -7,6 +7,7 @@ import { showCommand } from './commands/show.js';
 import { searchCommand } from './commands/search.js';
 import { factsCommand } from './commands/facts.js';
 import { entitiesCommand } from './commands/entities.js';
+import { aboutCommand } from './commands/about.js';
 import { backlinksCommand } from './commands/backlinks.js';
 import { suggestLinksCommand } from './commands/suggest-links.js';
 import { recommendCommand } from './commands/recommend.js';
@@ -165,6 +166,22 @@ program
     entitiesCommand({
       json: options.json,
       review: options.review,
+      types: options.type ? options.type.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+    });
+  });
+
+program
+  .command('about <slug>')
+  .description('Everything the vault knows about one note — reachable through the graph, not by wording')
+  .option('--json', 'Output as JSON (agent-friendly)')
+  .option('--incoming', 'Only show notes that link here')
+  .option('--outgoing', 'Only show notes this one links to')
+  .option('--type <types>', 'Restrict to comma-separated note types')
+  .action((slug: string, options: { json?: boolean; incoming?: boolean; outgoing?: boolean; type?: string }) => {
+    aboutCommand(slug, {
+      json: options.json,
+      incoming: options.incoming,
+      outgoing: options.outgoing,
       types: options.type ? options.type.split(',').map(t => t.trim()).filter(Boolean) : undefined,
     });
   });
