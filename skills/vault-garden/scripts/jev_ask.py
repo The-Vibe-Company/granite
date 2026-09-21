@@ -78,12 +78,23 @@ def sentences(body: str, limit: int) -> list[str]:
     horizontal rule, deleting the content between the rules. That is the same mistake
     `src/core/about.ts` documents at length, and the fix is the same: do not have the strip.
 
-    Divergences from the canonical implementation are confined to Unicode edge cases that
-    neither the product nor the calibration corpus exercises — the 30..400 window counts
-    UTF-16 units in JS and code points here, the two languages disagree on a few whitespace
-    code points (U+FEFF, U+001C-001F), and a list marker preceded by a tab is stripped by JS
-    and kept here. `test_jev_ask.py` checks this copy against the sentences the shipped CLI
-    actually emits, so real drift fails there instead of quietly changing what gets judged.
+    JavaScript and Python do not agree on every character, so this is not a byte-for-byte
+    port. Four mechanisms differ, none of them exercised by the product or by the calibration
+    corpus (audited: no body in the vault contains any of the code points below):
+
+    1. The 30..400 window counts UTF-16 units in JS and code points here, so a run of astral
+       characters can fall inside one window and outside the other.
+    2. Whitespace classes differ: U+FEFF and U+0085 are whitespace to Python and not to JS,
+       while U+001C-001F are whitespace to JS and not to Python. That changes both `strip`
+       and the `(?<=[.!?])\\s+` split.
+    3. JS `.` and `$` treat `\\r`, U+2028 and U+2029 as line terminators; Python's do not.
+       The heading pattern above is therefore anchored differently, so a heading followed by
+       a lone `\\r` is dropped here and kept there (a plain-ASCII trigger, unlike the rest).
+    4. A list marker interleaved with whitespace around a tab (`-\\t- item`) is stripped by JS
+       and only partly stripped here.
+
+    `test_jev_ask.py` checks this copy against the sentences the shipped CLI actually emits,
+    so real drift fails there instead of quietly changing what gets judged.
     """
     if limit <= 0:
         return []
