@@ -1,0 +1,22 @@
+src/mcp/judge.ts
+  h_ecee222750141d 323-332,355-356,358-359,388-412,414,430-452
+src/mcp/judgment-cache.ts
+  h_ecee222750141d 1-152
+src/mcp/link-capture.ts
+  h_ecee222750141d 22,24-37,48-75,79,99-159
+src/mcp/runtime.ts
+  h_ecee222750141d 977
+test/mcp/judgment-cache.test.ts
+  h_ecee222750141d 1-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8b44ff54366718ad7da9018a9b410f7fc4700cab",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
