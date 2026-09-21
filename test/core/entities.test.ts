@@ -97,6 +97,33 @@ describe('entity alignment', () => {
     expect(plan.review[0].why).toContain('merge the bodies');
   });
 
+  it('sends a contested third alias to review instead of folding one title into the other', () => {
+    // Regression: two distinct people each listed "PLB". The shared alias is neither
+    // note's title, so it proves nothing about equivalence. Folding used to alias one
+    // person's full name onto the other.
+    const plan = planAlignment(
+      findAlignmentCandidates([
+        note('plb-person', 'Pierre-Louis Biojout (PLB)', 'person', ['plb']),
+        note('pliny', 'Pliny the Liberator (@elder_plinius)', 'person', ['PLB']),
+      ]),
+    );
+    expect(plan.aliases).toHaveLength(0);
+    expect(plan.review).toHaveLength(1);
+    expect(plan.review[0].why).toContain('contested');
+  });
+
+  it('makes the note whose title is the shared name canonical, not the shortest title', () => {
+    const plan = planAlignment(
+      findAlignmentCandidates([
+        note('long-owner', 'Kima Ventures (Alexis Robert)'),
+        note('short-claimer', 'Kima', 'organization', ['Kima Ventures (Alexis Robert)']),
+      ]),
+    );
+    expect(plan.aliases).toHaveLength(1);
+    expect(plan.aliases[0].target).toBe('long-owner');
+    expect(plan.aliases[0].alias).toBe('Kima');
+  });
+
   it('never plans an action that would rewrite a note', () => {
     // The plan is only alias attachments and review items: there is no mutation of
     // an existing note anywhere, which is what keeps this reversible.

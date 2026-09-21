@@ -194,11 +194,27 @@ export function planAlignment(candidates: AlignmentCandidate[]): AlignmentPlan {
       });
       continue;
     }
-    // Shared alias, same type: make the shorter title canonical and alias the other.
-    const [primary, secondary] =
-      candidate.a.title.length <= candidate.b.title.length
-        ? [candidate.a, candidate.b]
-        : [candidate.b, candidate.a];
+    // A shared alias only proves equivalence when it is one of the two titles: that
+    // means one note explicitly claims the other's name. When both notes merely claim
+    // the same third name, the alias is *contested* — neither note owns it, so folding
+    // would fuse two distinct entities and make them answer to one name. Real case: a
+    // person note and another person note that each listed "PLB" were paired, and the
+    // plan proposed aliasing one person's full name onto the other.
+    const aOwnsKey = normalizeName(candidate.a.title) === candidate.matched_on;
+    const bOwnsKey = normalizeName(candidate.b.title) === candidate.matched_on;
+    if (!aOwnsKey && !bOwnsKey) {
+      review.push({
+        candidate,
+        why:
+          `alias "${candidate.matched_on}" is claimed by both notes but is neither title; ` +
+          'the alias is contested — decide which note owns it instead of folding one title into the other',
+      });
+      continue;
+    }
+    // The note whose title is the shared name is canonical; the other one claimed it.
+    const [primary, secondary] = aOwnsKey
+      ? [candidate.a, candidate.b]
+      : [candidate.b, candidate.a];
     aliases.push({
       target: primary.slug,
       alias: secondary.title,
