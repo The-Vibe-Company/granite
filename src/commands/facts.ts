@@ -142,8 +142,9 @@ export function factsCommand(options: FactsOptions): void {
     if (result.written.length === 0 && result.rejected.length === 0 && result.existing.length === 0) {
       console.log('No proposals on stdin.');
       console.log('');
-      console.log('Pipe extraction output in, for example:');
-      console.log('  python3 skills/vault-garden/scripts/jev_facts.py facts <slug> | granite facts --write --json');
+      console.log('`granite facts --write` accepts proposals; it never extracts them. Pipe JSON in on');
+      console.log('stdin with the shape it documents (subject, relation, value, source, observed_at).');
+      console.log('Extraction is the caller\'s job, and an agent is usually the caller.');
       return;
     }
     for (const slug of result.written) console.log(`  + ${slug}`);

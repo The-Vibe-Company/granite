@@ -42,6 +42,29 @@ branches on. It never writes prose, never plans, and never runs a loop.
 Anything else that would think on Granite's behalf is still out of bounds, and the
 answer to "can this be deterministic?" is still yes by default.
 
+#### Measured constraints on that one model call
+
+These were paid for in API calls and hand-labelling. They are the reason the judge layer
+looks the way it does, so they belong with the rule rather than in a skill that can move.
+
+- **Rank inside a set; never judge a pair in isolation.** A pair judged alone separated
+  nothing (AUC 0.56); the same content presented as a set separated cleanly (AUC 0.973).
+- **Batch one request per set.** Measured 12.2x cheaper and 10x faster than one call per
+  item, with identical answers.
+- **Do not pass already-linked neighbours as extra state.** Recall fell 0.89 → 0.50 while
+  the cost doubled.
+- **Derive absence from the ranking, never from an absolute question.** An absolute "does
+  this pool hold an answer?" Noul returned 0.25 on a pool whose answer sat at rank 3 — a
+  false negative, the worst failure a second brain can produce. Report it as context; do not
+  gate on it. `ANSWERED_AT` / `ABSENT_BELOW` sit between the measured values.
+- **State the question when asking which sentence answers it.** "Which sentence carries the
+  answer?" made Jev abstain at 0.77 while the sentence holding the figure sat in the list at
+  0.10; restating the question moved that sentence to 0.96.
+- **Do not ask for dates as dates** (correct 1 time in 9) and **do not auto-apply extracted
+  facts** (0.75 precision, and the failure is silent). Propose; let a policy or a human decide.
+- **Do not build**: note decay or forgetting (the canonical citation never measured an
+  effect), or automatic retirement (wrong on 70% of facts across two independent corpora).
+
 Preferred workflow layers:
 - orient
 - research
