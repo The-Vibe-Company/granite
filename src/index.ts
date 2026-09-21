@@ -63,6 +63,9 @@ import { GRANITE_VERSION } from './version.js';
  * an error the caller could act on.
  */
 function positiveInt(value: string): number {
+  if (!/^\d+$/.test(value.trim())) {
+    throw new InvalidArgumentError(`Expected a positive integer, got "${value}".`);
+  }
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
     throw new InvalidArgumentError(`Expected a positive integer, got "${value}".`);
@@ -71,6 +74,9 @@ function positiveInt(value: string): number {
 }
 
 function nonNegativeInt(value: string): number {
+  if (!/^\d+$/.test(value.trim())) {
+    throw new InvalidArgumentError(`Expected a non-negative integer, got "${value}".`);
+  }
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 0) {
     throw new InvalidArgumentError(`Expected a non-negative integer, got "${value}".`);

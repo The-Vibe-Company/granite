@@ -135,32 +135,22 @@ describe('entityPool', () => {
 });
 
 describe('candidateSentences', () => {
-  it('strips a realistic frontmatter block', () => {
-    // The previous fixture used `id: abc`, which is too short to survive the minimum
-    // sentence length, so the test passed while the frontmatter strip was dead code.
-    // Real Granite frontmatter carries a UUID and a long title, both of which leak into
-    // the pool as "sentences" if the strip does not work.
+  it('does not strip frontmatter, because it never receives any', () => {
+    // `body` is gray-matter output, so frontmatter is already gone upstream. An earlier
+    // version carried a frontmatter strip here as a defensive measure; the pattern was
+    // dead code (``\A`` is not a JS anchor), and the obvious "fix" made it destructive:
+    // a legitimate body beginning with a horizontal rule and containing a later `---`
+    // lost everything between them. The right defence is to not have it.
     const body = [
       '---',
-      'id: 3f2e6e3a-f95e-4ca5-ab72-fd86212b0aff',
-      'sourceNotionId: 357324e51ac2813cb372e77bad7dcb26',
-      'sourceDiscussionTitle: Weekly sync with the client about the migration plan',
-      'tags:',
-      '  - client',
+      'This paragraph sits between two horizontal rules and is real note content,',
+      'not frontmatter, so it must survive into the candidate sentences intact.',
       '---',
       'Monka migre son infrastructure vers Scaleway en juin 2026 pour la conformité HDS.',
     ].join('\n');
     const out = candidateSentences(body, 6);
-    expect(out).toEqual(['Monka migre son infrastructure vers Scaleway en juin 2026 pour la conformité HDS.']);
-    expect(out.join(' ')).not.toContain('sourceNotionId');
-    expect(out.join(' ')).not.toContain('357324e51ac2813cb372e77bad7dcb26');
-  });
-
-  it('strips frontmatter even without a trailing newline after the delimiter', () => {
-    const body = '---\r\nid: abc\r\ntitle: A reasonably long document title here\r\n---\nSecond sentence that is long enough to qualify as a candidate.';
-    const out = candidateSentences(body, 6);
-    expect(out.join(' ')).not.toContain('title:');
-    expect(out[0]).toContain('Second sentence');
+    expect(out.join(' ')).toContain('real note content');
+    expect(out.join(' ')).toContain('Scaleway');
   });
 
   it('drops code fences and headings', () => {

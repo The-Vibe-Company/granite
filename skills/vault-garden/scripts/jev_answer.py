@@ -109,26 +109,30 @@ def main(argv: list[str]) -> int:
             "hint": "pipe a pool in: granite pool <anchor> --json | python3 jev_answer.py \"<question>\"",
         }, indent=2))
         return 0
-    payload = json.loads(raw)
     # A failed `granite pool` call returns {"success": false, "error": ...}. Reading it as
     # an empty pool reported "absent", so "the command broke" looked identical to "the
-    # vault has no answer" -- the two must never be confusable.
-    if isinstance(payload, dict) and payload.get("success") is False:
-        print(json.dumps({
-            "status": "error",
-            "answer_verdict": None,
-            "reason": payload.get("error") or "granite pool reported failure",
-        }, indent=2, sort_keys=True))
+    # vault has no answer" -- the two must never be confusable. Every malformed shape is
+    # checked before anything is read from it, including a top-level scalar or list, which
+    # previously escaped as an AttributeError traceback with no structured verdict.
+    def fail(reason: str) -> int:
+        print(json.dumps({"status": "error", "answer_verdict": None, "reason": reason},
+                         indent=2, sort_keys=True))
         return 1
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return fail(f"pool input is not JSON: {exc.msg}")
+
+    if not isinstance(payload, dict):
+        return fail(f"expected a JSON object from `granite pool --json`, got {type(payload).__name__}")
+    if payload.get("success") is False:
+        return fail(payload.get("error") or "granite pool reported failure")
+
     pool = payload.get("data", payload)
-    if not isinstance(pool, dict) or "candidates" not in pool:
-        print(json.dumps({
-            "status": "error",
-            "answer_verdict": None,
-            "reason": "unrecognised pool payload; expected the output of `granite pool --json`",
-        }, indent=2, sort_keys=True))
-        return 1
-    candidates = pool.get("candidates") or []
+    if not isinstance(pool, dict) or not isinstance(pool.get("candidates"), list):
+        return fail("unrecognised pool payload; expected the output of `granite pool --json`")
+    candidates = pool["candidates"]
     if not candidates:
         print(json.dumps({
             "status": "ok", "answer_verdict": "absent", "top_relevance": 0.0,

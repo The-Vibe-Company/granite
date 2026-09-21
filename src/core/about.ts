@@ -141,11 +141,12 @@ export interface EntityPool {
  * `sourceNotionId` line is not a sentence that can answer anything.
  */
 export function candidateSentences(body: string, limit = 6): string[] {
+  // No frontmatter strip here on purpose. `body` is gray-matter output, so frontmatter is
+  // already gone upstream; a strip would only fire on a real body that legitimately begins
+  // with a horizontal rule and contains a later `---`, silently deleting the content
+  // between them. A dead `\A` pattern that never matched was the earlier version of this
+  // mistake: it looked defensive and was unreachable, while its "fix" became destructive.
   const text = (body ?? '')
-    // `\A` is not a JavaScript anchor -- it matches a literal "A", so this replace was
-    // dead code and frontmatter leaked into the pool as a candidate sentence. `^` with
-    // the `m` flag anchors at the start of the string for the leading document.
-    .replace(/^---\r?\n[\s\S]*?\n---\s*/, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/^#{1,6}\s.*$/gm, ' ');
   const out: string[] = [];
