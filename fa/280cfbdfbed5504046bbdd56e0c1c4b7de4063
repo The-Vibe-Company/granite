@@ -1,0 +1,20 @@
+AGENTS.md
+  h_ecee222750141d 9
+CLAUDE.md
+  h_ecee222750141d 34-42
+README.md
+  h_ecee222750141d 205,210-215,318,335
+skills/granite-lint/SKILL.md
+  h_ecee222750141d 80-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fa280cfbdfbed5504046bbdd56e0c1c4b7de4063",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
