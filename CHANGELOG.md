@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.21...granite-mem-v0.1.22) (2026-09-21)
+
+
+### Features
+
+* **about:** reach a note through the graph, not through its wording ([#72](https://github.com/The-Vibe-Company/granite/issues/72)) ([c72b520](https://github.com/The-Vibe-Company/granite/commit/c72b5208edfe61b06780889652eed82b815f1e22))
+
 ## [0.1.21](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.20...granite-mem-v0.1.21) (2026-09-21)
 
 
