@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, writeDefaultConfig } from '../../src/core/config.js';
 import { GraniteMcpRuntime } from '../../src/mcp/runtime.js';
 
@@ -52,30 +52,61 @@ describe('capture-time link proposals', () => {
     });
   });
 
-  it('never fails the capture when the judgment cannot run', async () => {
-    // A key TypeSafe will reject. The point is that the write survives AND that the failure is
-    // reported as unjudged candidates — never a throw, never silence.
-    process.env.TYPESAFE_API_KEY = 'invalid-key-for-test';
-    runtime.createNote({ title: 'Acme', type: 'organization', body: 'Acme is an organization.\n' });
-    const result = runtime.createNote({
-      title: 'Meeting about Acme',
-      type: 'note',
-      // A verbatim mention of an existing title is what makes a candidate, so this note must
-      // actually have one for the test to exercise the judgment at all. An earlier version of
-      // this test had no candidates, finished in 9ms, and proved nothing.
-      body: 'We met Acme today about the hosting work.\n',
-    });
+  it('reports the candidates it could not judge when Jev fails, and keeps the note', async () => {
+    // `fetch` is stubbed: the suite must not depend on the network, and the point here is the
+    // failure path. An earlier version of this test called TypeSafe for real, took 593ms, and
+    // still passed while a wrong note shape made the whole judgment throw before it ran.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{"detail":"nope"}', { status: 401 }),
+    );
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      runtime.createNote({ title: 'Acme', type: 'organization', body: 'Acme is an organization.\n' });
+      const result = runtime.createNote({
+        title: 'Meeting about Acme',
+        type: 'note',
+        // A verbatim mention of an existing title is what makes a candidate. Without one this
+        // test exercises nothing.
+        body: 'We met Acme today about the hosting work.\n',
+      });
 
-    expect(fs.existsSync(result.note.filepath)).toBe(true);
-    const proposed = await result.proposed_links;
+      expect(fs.existsSync(result.note.filepath)).toBe(true);
+      const proposed = await result.proposed_links;
 
-    // The property that matters on the hot path: a judgment that cannot run never fails the
-    // capture, and never throws into the caller. It reports either an unjudged count or
-    // nothing at all — and the failure is logged rather than swallowed.
-    if (proposed !== undefined) {
-      expect(proposed.proposed).toEqual([]);
-      expect(proposed.not_judged).toBeGreaterThan(0);
+      // The judgment ran and failed: the candidates are reported unjudged, not silently dropped.
+      expect(proposed).toBeDefined();
+      expect(proposed!.proposed).toEqual([]);
+      expect(proposed!.not_judged).toBeGreaterThan(0);
+      // The failure is logged, never swallowed.
+      expect(errorSpy).toHaveBeenCalled();
+      // And the note survived, which is the property that matters on the hot path.
+      expect(fs.existsSync(result.note.filepath)).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+      errorSpy.mockRestore();
     }
-    expect(fs.existsSync(result.note.filepath)).toBe(true);
+  });
+
+  it('proposes the link when Jev accepts it', async () => {
+    // The success path, with the network stubbed. This is what catches a wrong shape passed to
+    // the candidate builder: the previous version of the suite passed while that threw.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ answers: { 'link::acme': { type: 'noul', noul: 0.97 } } }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    try {
+      runtime.createNote({ title: 'Acme', type: 'organization', body: 'Acme is an organization.\n' });
+      const result = runtime.createNote({
+        title: 'Meeting about Acme',
+        type: 'note',
+        body: 'We met Acme today about the hosting work.\n',
+      });
+      const proposed = await result.proposed_links;
+      expect(proposed).toBeDefined();
+      expect(proposed!.proposed).toHaveLength(1);
+      expect(proposed!.proposed[0]).toMatchObject({ target: 'acme', link_probability: 0.97 });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

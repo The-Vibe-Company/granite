@@ -35,11 +35,18 @@ export async function proposeLinksAtCapture(
   db: Database.Database,
   note: LinkableNote,
 ): Promise<LinkProposalResult | undefined> {
-  const candidates = suggestLinks(db, {
+  // `suggestLinks` reads the note's title from `frontmatter`, not from a root `title`. Casting
+  // an object with the wrong shape into `Note` compiled and then threw at runtime, inside the
+  // catch below, where it looked like "nothing was proposed".
+  const candidateNote = {
     slug: note.slug,
-    title: note.title,
+    filepath: '',
+    frontmatter: { title: note.title },
     body: note.body,
-  } as never)
+    outgoing_links: [],
+  } as unknown as Parameters<typeof suggestLinks>[1];
+
+  const candidates = suggestLinks(db, candidateNote)
     .slice(0, MAX_CAPTURE_CANDIDATES)
     .map(suggestion => ({ slug: suggestion.target_slug, title: suggestion.target_title }));
 
@@ -52,9 +59,17 @@ export async function proposeLinksAtCapture(
       requireApiKey(),
       judgeModel(),
     );
-  } catch {
+  } catch (error) {
     // The capture already succeeded. Reporting "we could not judge" is honest; throwing here
     // would turn a network hiccup into a lost note, which is strictly worse.
+    //
+    // The reason is logged, not swallowed: a wrong note shape passed to the candidate builder
+    // once compiled and threw here, and the silent catch made it look like "nothing was
+    // proposed" through three debugging rounds.
+    console.error(
+      `granite: could not judge ${candidates.length} link candidate(s) for ${note.slug}:`,
+      error instanceof Error ? error.message : String(error),
+    );
     return { note: note.slug, proposed: [], rejected: [], not_judged: candidates.length };
   }
 }
