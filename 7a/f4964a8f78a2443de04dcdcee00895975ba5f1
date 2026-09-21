@@ -1,0 +1,16 @@
+src/core/about.ts
+  h_ecee222750141d 366,368-373,393-394,397-403,405,409,414
+test/core/about.test.ts
+  h_ecee222750141d 413-414,417,419-420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7af4964a8f78a2443de04dcdcee00895975ba5f1",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
