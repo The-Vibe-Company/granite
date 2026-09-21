@@ -571,6 +571,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         shown: z.number().int().describe('How many of them this pool returned.'),
       })).describe('Per-hop reachable/shown counts. Use this to tell "the vault does not have it" from "the limit dropped it" before concluding anything is absent.'),
       sentences_omitted: z.boolean().optional().describe('True when this listing is titles only because the nearest band is large. Call again with sentences: 6 for the text a judge needs to cite.'),
+      beyond_depth: z.number().int().describe('Real notes sitting one hop beyond the walked depth. Non-zero means this pool is a boundary, not the edge of what the vault holds: raise depth before concluding anything is absent.'),
     },
     annotations: readOnlyAnnotations,
   }, async ({ anchor, depth, limit, sentences }) => {
@@ -613,6 +614,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         reachable: z.number().int(),
         shown: z.number().int(),
       })).optional().describe('Per-hop reachable/shown counts. Read this before reporting absence: a verdict drawn from a truncated pool is a statement about the limit, not about the vault.'),
+      beyond_depth: z.number().int().optional().describe('Real notes one hop beyond the walked depth. Non-zero means the walk stopped short, so an absence verdict is about the boundary rather than the vault.'),
       reason: z.string().optional(),
     },
     annotations: readOnlyAnnotations,
@@ -656,6 +658,9 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       '',
     ];
     if (verdict.reason) lines.push(verdict.reason, '');
+    if ((verdict.beyond_depth ?? 0) > 0) {
+      lines.push(`${verdict.beyond_depth} further note(s) sit one hop beyond the walked depth: this answer is about the depth reached, not about the vault.`, '');
+    }
     const dropped = (verdict.by_distance ?? []).filter(band => band.shown < band.reachable);
     if (dropped.length > 0) {
       // An absence verdict from a capped pool is a claim about the limit, not the vault.

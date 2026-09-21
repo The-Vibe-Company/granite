@@ -490,3 +490,90 @@ describe('the default pool is bounded by what it costs, not by a round number', 
     d.close();
   });
 });
+
+describe('sampling invariants', () => {
+  const bodyOf = (n: number) => Array.from({ length: n }, (_, i) =>
+    `Phrase numero ${String(i).padStart(2, '0')} suffisamment longue pour etre retenue.`).join('\n');
+  const allOf = (n: number) => candidateSentences(bodyOf(n), n);
+
+  it('never repeats a sentence to fill the budget', () => {
+    // The stride clamp used to collapse onto one index: limit 7 over 8 returned [0,1,2,3,3,5,7],
+    // wasting a slot and a judge option on the same sentence twice.
+    for (const [n, limit] of [[8, 7], [12, 11], [9, 8], [8, 6], [21, 6]] as const) {
+      const all = allOf(n);
+      const picked = candidateSentences(bodyOf(n), limit);
+      expect(new Set(picked).size, `n=${n} limit=${limit} repeated a sentence`).toBe(picked.length);
+      expect(picked).toHaveLength(limit);
+      // order is document order, so a caller can read it top to bottom
+      const indices = picked.map(s => all.indexOf(s));
+      expect([...indices].sort((a, b) => a - b)).toEqual(indices);
+    }
+  });
+
+  it('never exceeds the requested count', () => {
+    for (let n = 2; n <= 60; n++) {
+      for (let limit = 1; limit <= Math.min(30, n); limit++) {
+        const picked = candidateSentences(bodyOf(n), limit);
+        expect(picked.length, `n=${n} limit=${limit}`).toBeLessThanOrEqual(limit);
+      }
+    }
+  });
+
+  it('keeps the opening of a long body, which a bare stride dropped', () => {
+    // Round-1 finding: a pure stride returned [0,1,3,4,6,7] at n=8/limit=6 and lost indices
+    // 2 and 5 that the old prefix kept.
+    const all = allOf(8);
+    const indices = candidateSentences(bodyOf(8), 6).map(s => all.indexOf(s));
+    expect(indices).toContain(2);
+    expect(indices).toContain(5);
+  });
+});
+
+describe('the depth bound is reported too, not only the limit', () => {
+  // The limit axis was protected and the depth axis was not: a pool capped by `depth` looked
+  // exactly like a complete one, so an absence verdict said "the vault does not have it" when
+  // the walk had simply stopped. That is the same false claim in the other direction.
+  it('counts the notes one hop beyond the walked depth', () => {
+    const d = db();
+    // monka-care links to person-a; person-a links to nobody new, so a depth-1 walk from
+    // monka-care has nothing beyond it except what it already saw.
+    const shallow = entityPool(d, 'monka-care', { depth: 1, sentences: 0 })!;
+    expect(shallow.beyond_depth).toBe(0);
+
+    // Add a note only reachable through a depth-2 node, then walk at depth 1.
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)')
+      .run('far-a', 'Far', 'note', 'active', 'Two hops from the anchor.');
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'far-a', 'far-a', 'x');
+    const capped = entityPool(d, 'monka-care', { depth: 1, sentences: 0 })!;
+    expect(capped.beyond_depth).toBeGreaterThan(0);
+    d.close();
+  });
+
+  it('says so in the prose', () => {
+    const d = db();
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)')
+      .run('far-a', 'Far', 'note', 'active', 'Two hops from the anchor.');
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'far-a', 'far-a', 'x');
+    const markdown = renderPoolMarkdown(entityPool(d, 'monka-care', { depth: 1, sentences: 0 })!);
+    expect(markdown).toContain('Depth bound reached');
+    d.close();
+  });
+
+  it('does not cry depth-bound when the walk covered everything', () => {
+    const d = db();
+    const markdown = renderPoolMarkdown(entityPool(d, 'monka-care', { depth: 2, sentences: 0 })!);
+    expect(markdown).not.toContain('Depth bound reached');
+    d.close();
+  });
+
+  it('counts only real notes, never dangling link targets', () => {
+    // `reachable` was `distance.size`, which counted dangling targets while the per-hop rows
+    // did not, so the rendered "judged X of Y" sentence could contradict the table under it.
+    const d = db();
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('monka-care', 'not-a-note', 'not-a-note', 'x');
+    const pool = entityPool(d, 'monka-care', { sentences: 0 })!;
+    const perHop = pool.by_distance.reduce((total, band) => total + band.reachable, 0);
+    expect(pool.reachable).toBe(perHop);
+    d.close();
+  });
+});

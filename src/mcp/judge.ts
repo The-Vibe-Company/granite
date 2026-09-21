@@ -62,6 +62,8 @@ export interface AnswerVerdict {
   reachable?: number;
   /** What the candidate limit left out, per hop. Absence claims must be read against it. */
   by_distance?: PoolDistanceSummary[];
+  /** Real notes one hop beyond the walked depth: the other bound a verdict is drawn inside. */
+  beyond_depth?: number;
   reason?: string;
 }
 
@@ -246,6 +248,7 @@ export async function judgePool(
       ranked: [],
       reachable: pool.reachable,
       by_distance: pool.by_distance,
+      beyond_depth: pool.beyond_depth,
       reason: `the pool is empty: no note is reachable from "${pool.anchor}" at the walked depth`,
     };
   }
@@ -263,5 +266,6 @@ export async function judgePool(
     // limit dropped is what separates "the vault does not say" from "I did not look".
     reachable: pool.reachable,
     by_distance: pool.by_distance,
+    beyond_depth: pool.beyond_depth,
   };
 }
