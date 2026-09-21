@@ -530,6 +530,44 @@ describe('the byte budget follows the real wire body, not a constant', () => {
     }
   });
 
+  it('selects the same set in every builder, for any model name', () => {
+    // The seam the round-6 review found: `buildState` and `buildAnswerQuestions` selected with an
+    // empty model name while `judgePool` sent the set for the real one, so a long `TYPESAFE_MODEL`
+    // made them disagree — 200 candidates against 201, and 194 against 201 at 5,000 bytes. Every
+    // builder now takes the name, so the sets agree by construction.
+    // The pool is built by hand because it has to sit on the boundary for the model name to matter:
+    // 255 titles whose body is 128,005 B before any reserve, so the fitting prefix moves with it.
+    const candidates = Array.from({ length: 255 }, (_, i) => ({
+      slug: `note-${i}`,
+      title: `Note number ${i} about the client engagement`,
+      type: 'note',
+      distance: 1,
+      sentences: [] as string[],
+    }));
+    const pool: any = {
+      anchor: 'hub',
+      anchor_title: 'Hub',
+      reachable: 255,
+      candidates,
+      by_distance: [{ distance: 1, reachable: 255, shown: 255 }],
+      beyond_depth: 0,
+    };
+    // The fixture must be able to fail: a 5,000-byte model name has to shrink the selection.
+    expect(selectCandidates(pool, longQuestion, 'm'.repeat(5_000)).length)
+      .toBeLessThan(selectCandidates(pool, longQuestion).length);
+    for (const modelName of ['', 'jev-1.13.0', 'm'.repeat(300), 'm'.repeat(5_000)]) {
+      const sent = selectCandidates(pool, longQuestion, modelName).map(c => c.slug);
+      const state: any = buildState(pool, longQuestion, modelName);
+      const questions = buildAnswerQuestions(pool, longQuestion, modelName);
+      expect(state.candidate_notes.map((c: any) => c.id)).toEqual(sent);
+      expect(Object.keys(questions).filter(k => k.startsWith('rel::')).map(k => k.slice(5))).toEqual(sent);
+      // And the default is the reserve the default model needs, not a larger set.
+      if (modelName === '') {
+        expect(sent.length).toBe(selectCandidates(pool, longQuestion, 'jev-1.13.0').length);
+      }
+    }
+  });
+
   it('measures the model name into the request, because it is caller-overridable', () => {
     // The reserve is the wrapper keys plus the model field. A `TYPESAFE_MODEL` longer than the
     // allowance used to under-reserve silently, which turns a trimmable pool into a refusal.

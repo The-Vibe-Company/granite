@@ -368,15 +368,22 @@ export function selectCandidates(
   );
 }
 
-/** The pool as the state Jev reads: the question, then one entry per candidate. */
-export function buildState(pool: EntityPool, question: string) {
+/**
+ * The pool as the state Jev reads: the question, then one entry per candidate.
+ *
+ * `modelName` is not cosmetic: it is part of the byte reserve, so a caller running a custom
+ * `TYPESAFE_MODEL` must pass it to get the same candidate set `judgePool` sends. Both builders
+ * default to no name, which is what the default model costs; the wire guard is separate and
+ * `judgePool` is the only production path that builds a request.
+ */
+export function buildState(pool: EntityPool, question: string, modelName = '') {
   // Trimming here — rather than refusing upstream — is what keeps the tool working at its own
   // default pool size: a 60-candidate pool of ordinary notes is already over the ceiling.
   // The state carries the question. It MUST: every `rel::` question says "the question" without
   // restating it, and questions are evaluated independently, so a state without it asks Jev to
   // score relevance to nothing. The ranking, `top_score` and the verdict all come from those
   // scores, and the thresholds were calibrated with the question present.
-  return assembleState(pool, question, selectCandidates(pool, question));
+  return assembleState(pool, question, selectCandidates(pool, question, modelName));
 }
 
 /**
@@ -386,10 +393,14 @@ export function buildState(pool: EntityPool, question: string) {
  * ranked differently on real data, and the broader one put generic explainers above the
  * note holding the figure.
  */
-export function buildAnswerQuestions(pool: EntityPool, questionText: string): Record<string, unknown> {
+export function buildAnswerQuestions(
+  pool: EntityPool,
+  questionText: string,
+  modelName = '',
+): Record<string, unknown> {
   // Must be the same trim `buildState` applies, or a question is asked about a candidate whose
   // sentences the state no longer carries.
-  return questionsFor(pool, selectCandidates(pool, questionText));
+  return questionsFor(pool, selectCandidates(pool, questionText, modelName));
 }
 
 /**
