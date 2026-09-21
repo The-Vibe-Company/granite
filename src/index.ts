@@ -1,4 +1,5 @@
 import { Command, InvalidArgumentError } from 'commander';
+import { assertJevConfigured } from './mcp/judge.js';
 import { initVault } from './commands/init.js';
 import { newNote } from './commands/new.js';
 import { addNote } from './commands/add.js';
@@ -100,8 +101,8 @@ program
   .description('Quick-capture raw text into the vault — the fastest way to get something in')
   .argument('[text]', 'Note text (or pipe via stdin)')
   .option('--json', 'Output as JSON (agent-friendly)')
-  .action((text: string | undefined, options: { json?: boolean }) => {
-    addNote(text, options);
+  .action(async (text: string | undefined, options: { json?: boolean }) => {
+    await addNote(text, options);
   });
 
 // ─── Query ────────────────────────────────────────────────────────────
@@ -617,7 +618,25 @@ syncCmd
     await syncWatchCommand(remote, options);
   });
 
-await program.parseAsync();
+// Jev is required, so no command runs without it. `--help`/`--version` still work, because
+// refusing to explain itself would be useless.
+const JEV_EXEMPT_COMMANDS = new Set(['help']);
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  if (JEV_EXEMPT_COMMANDS.has(actionCommand.name())) return;
+  assertJevConfigured();
+});
+
+try {
+  await program.parseAsync();
+} catch (error) {
+  // A missing credential is a configuration mistake, not a crash. Print the sentence and
+  // exit; a stack trace here buries the one line the user needs.
+  if (error instanceof Error && error.name === 'JevUnavailableError') {
+    console.error(`error: ${error.message}`);
+    process.exit(1);
+  }
+  throw error;
+}
 
 function collectValues(value: string, previous: string[]): string[] {
   return [...previous, value];

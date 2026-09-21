@@ -31,10 +31,15 @@ branches on. It never writes prose, never plans, and never runs a loop.
   and then *delegate the semantic judgment* instead of asking the calling agent to
   orchestrate it. This respects the rule above rather than breaking it: intelligence
   still lives outside Granite, it is only Granite that is allowed to invoke it.
-- **Opt-in, and it fails closed.** Without `TYPESAFE_API_KEY` the feature reports
-  `unavailable` and the rest of Granite — every other tool, the whole CLI — works
-  unchanged. This follows the existing `ferrules` PDF-extractor precedent: resolve an
-  external tool, degrade clearly when it is absent.
+- **Required, and it fails loudly.** `TYPESAFE_API_KEY` must be set: the MCP server and
+  the CLI refuse to start without it, and a judgment without one throws a named
+  `JevUnavailableError` rather than returning a verdict. Granite does less without it on
+  purpose — a silently degraded semantic layer produces answers that look right and are
+  not.
+- **Capture is judged.** Every created note is judged at capture, because linking as a
+  periodic pass never happens for the notes that need it. Jev proposes links and never
+  writes them: the measured precision does not support writing. The write stays
+  synchronous and a failed judgment never fails a capture.
 - **The boundary that does not move:** no embeddings, no vector store, no generative
   text, no autonomous loop, no scheduler, no telemetry. Jev answers questions about a
   set Granite chose; it never chooses what to look at.
