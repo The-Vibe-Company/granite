@@ -1,0 +1,18 @@
+src/core/slugify.ts
+  h_ecee222750141d 26-30,35-38
+test/core/slugify.test.ts
+  h_ecee222750141d 61-68
+test/core/wikilinks.test.ts
+  h_ecee222750141d 111-114,119-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8d0516e1f72f0cd0c93a2b883ea1f11d3642b14b",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
