@@ -206,10 +206,15 @@ export function filterAbout(entity: AboutEntity, types?: string[]): FilteredAbou
  * A line that is metadata rather than prose: `sourceNotionId: ...`, `File: [...]`.
  *
  * Imported notes put these at the very top, so a first-N read spent its whole budget on
- * them and never reached the body. Naming each field would be endless; the shape is what
- * matters — a short key, a colon, a value — and prose rarely opens that way.
+ * them and never reached the body.
+ *
+ * The pattern is deliberately narrow. A first version accepted any short key before a colon
+ * (`^[\w-]{2,24}:`) and silently deleted real prose — "Price: …", "Budget: …",
+ * "Decision: …", "Note: …" are all sentences that could answer something. Only
+ * identifier-shaped keys count: camelCase, snake_case, or a known field-ish word. Losing a
+ * sentence is unrecoverable; keeping a metadata line costs one slot.
  */
-const METADATA_LINE = /^\s{0,3}[\w-]{2,24}:\s*\S/;
+const METADATA_LINE = /^\s{0,3}(?:[-*+]\s+)?(?:[a-z]+[A-Z][A-Za-z]*|[a-z]+_[a-z_]+|File|Source|Author|Created|Modified|Tags?|Aliases?):\s*\S/;
 
 /** Every sentence in a body that could answer something, in document order. */
 function allCandidateSentences(body: string): string[] {
@@ -236,12 +241,11 @@ function allCandidateSentences(body: string): string[] {
  * Frontmatter, fenced code, markdown markers and metadata lines are stripped: a citation
  * marker or a `sourceNotionId` line is not a sentence that can answer anything.
  *
- * Selection is a **coverage sample, not a prefix**. It walks the whole document at an
- * even stride and includes the first and last candidate, because a structured note states
- * its context first and its numbers last: on a real note the sentence carrying the price
- * sat 16th of 21 qualifying lines, so a prefix of 6 could never contain it, and neither
- * could one sentence per region when the regions are wider than the gap between the
- * statements that matter.
+ * Selection is a **coverage sample with a prefix**, not a bare stride. A pure stride is
+ * strictly worse than a prefix on the opening lines — at 8 candidates for a budget of 6 it
+ * dropped indices 2 and 5, which the old prefix kept — so half the budget stays a prefix,
+ * and the other half walks the rest at an even stride ending on the last candidate. A
+ * structured note states its context first and its figures last, so both ends must survive.
  */
 export function candidateSentences(body: string, limit = 6): string[] {
   // No frontmatter strip here on purpose. `body` is gray-matter output, so frontmatter is
@@ -258,12 +262,16 @@ export function candidateSentences(body: string, limit = 6): string[] {
   if (all.length <= limit) return all;
   if (limit === 1) return [all[0]];
 
-  const picked: string[] = [];
-  for (let i = 0; i < limit; i++) {
-    // Even stride across the whole body, first and last included: the edges of a document
-    // carry the subject and the conclusion, and the middle carries the specifics.
-    const index = Math.round((i * (all.length - 1)) / (limit - 1));
-    picked.push(all[index]);
+  // With no room to both prefix and stride, keep the opening: it is the cheapest useful
+  // summary of a note we cannot afford to read.
+  if (limit === 2) return [all[0], all[all.length - 1]];
+
+  const prefix = Math.max(1, Math.floor(limit / 2));
+  const picked: string[] = all.slice(0, prefix);
+  const tailBudget = limit - prefix;
+  for (let i = 0; i < tailBudget; i++) {
+    const from = all.length - 1 - (tailBudget - 1 - i) * 2;
+    picked.push(all[Math.max(prefix, from)]);
   }
   return picked;
 }
@@ -317,20 +325,27 @@ export function entityPool(
 
   const ordered = [...distance.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 
-  // The default limit is NOT a round number: it is the whole nearest band. A cap of 30
-  // dropped the note holding a client's price, which sat 54th of 87 direct neighbours — and
-  // the pool could not tell anyone, because 30 looks like a deliberate choice.
-  const bandSize = ordered.filter(([, hop]) => hop === ordered[0]?.[1]).length;
-  const limit = Math.max(1, options.limit ?? bandSize);
+  // The default has to be both a floor and a ceiling, and "the nearest band" was neither.
+  // A leaf with one neighbour defaulted to a one-candidate pool while dozens were reachable;
+  // a hub returned 141 candidates and ~30k tokens. A fixed 30 was worse still: it dropped the
+  // note holding a client's price, which sat 54th of 87 direct neighbours, and said nothing.
+  //
+  // DEFAULT_NEAREST is a floor — it keeps taking the distance-sorted candidates until the
+  // pool is useful, so a degenerate band fills up from the next one — and MAX_CANDIDATES is
+  // the ceiling, chosen so a batched judge request stays inside a sane context even with
+  // sentences. `by_distance` reports whatever either bound dropped.
+  const DEFAULT_NEAREST = 60;
+  const MAX_CANDIDATES = 255;
+  const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_NEAREST, MAX_CANDIDATES));
 
-  // Sentences are the expensive field, not the candidates: measured ~211 tokens per
-  // candidate with them against ~42 without. A large nearest band therefore defaults to
-  // titles only, so the caller still sees the whole neighbourhood and pays for reading it
-  // only where it matters. Silently shipping 30k tokens of prose to answer "what is here"
-  // is the same class of mistake as silently shipping 30 of 87 candidates.
-  const BAND_SIZE_THAT_FITS_WITH_SENTENCES = 40;
+  // Sentences are the expensive field, not the candidates: measured ~211 tokens per candidate
+  // with them against ~42 without. The decision therefore uses the number of candidates the
+  // pool will actually return, not the limit that was asked for — a small vault must not lose
+  // its sentences because the default limit is generous. An explicit `sentences` always wins.
+  const CANDIDATES_THAT_FIT_WITH_SENTENCES = 30;
+  const effectiveLimit = Math.min(limit, ordered.length);
   const sentenceCount = options.sentences
-    ?? ((options.limit === undefined && bandSize > BAND_SIZE_THAT_FITS_WITH_SENTENCES) ? 0 : 6);
+    ?? (effectiveLimit > CANDIDATES_THAT_FIT_WITH_SENTENCES ? 0 : 6);
   const sentencesOmitted = sentenceCount === 0 && options.sentences === undefined;
 
   // Prepared once: the per-hop counts and the candidate loop both ask this question, and

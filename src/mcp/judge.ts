@@ -9,7 +9,7 @@
  * It is opt-in and fails closed. Without `TYPESAFE_API_KEY` every function here reports
  * itself unavailable and the rest of Granite is unaffected.
  */
-import type { EntityPool } from '../core/about.js';
+import type { EntityPool, PoolDistanceSummary } from '../core/about.js';
 
 export const API_URL = 'https://api.typesafe.ai/v1/systemone';
 
@@ -29,9 +29,6 @@ const TIMEOUT_MS = 60_000;
  */
 export const ANSWERED_AT = 1.0;
 export const ABSENT_BELOW = 0.5;
-
-/** Above this `noul` probability a proposed link is kept. Controls read 0.99/0.01. */
-export const LINK_THRESHOLD = 0.5;
 
 const RELEVANCE_LEVELS = [
   'Does not address the question.',
@@ -61,6 +58,10 @@ export interface AnswerVerdict {
   /** Reported alongside, never used as the decision — see the module note. */
   pool_has_answer?: number | null;
   ranked?: JudgeAnswer[];
+  /** Notes reachable at the walked depth, before the candidate limit was applied. */
+  reachable?: number;
+  /** What the candidate limit left out, per hop. Absence claims must be read against it. */
+  by_distance?: PoolDistanceSummary[];
   reason?: string;
 }
 
@@ -96,11 +97,13 @@ export async function postQuestions(
       signal: controller.signal,
     });
     if (!response.ok) {
-      const detail = (await response.text().catch(() => '')).slice(0, 300);
+      // The gateway's response body is deliberately not echoed: it is server-controlled text
+      // that would surface in a tool-visible error, and there is no way to prove it can never
+      // contain anything sensitive. Status and hint are enough to act on.
       const hint = response.status === 401
-        ? ' (check TYPESAFE_API_KEY)'
-        : response.status === 429 ? ' (rate limited; retry shortly)' : '';
-      throw new Error(`TypeSafe returned HTTP ${response.status}${hint}: ${detail}`);
+        ? ' — check TYPESAFE_API_KEY'
+        : response.status === 429 ? ' — rate limited, retry shortly' : '';
+      throw new Error(`TypeSafe rejected the request (HTTP ${response.status})${hint}.`);
     }
     return (await response.json()) as Record<string, unknown>;
   } finally {
@@ -108,9 +111,14 @@ export async function postQuestions(
   }
 }
 
-/** The pool as the state Jev reads: one entry per candidate, sentences keyed `s0..sN`. */
-function poolState(pool: EntityPool) {
+/** The pool as the state Jev reads: the question, then one entry per candidate. */
+export function buildState(pool: EntityPool, question: string) {
   return {
+    // The question MUST be in the state. Every `rel::` question says "the question" without
+    // restating it, and questions are evaluated independently, so a state without it asks
+    // Jev to score relevance to nothing. The ranking, `top_score` and the verdict all come
+    // from those scores, and the thresholds were calibrated with the question present.
+    question,
     candidate_notes: pool.candidates.map(candidate => ({
       id: candidate.slug,
       title: candidate.title,
@@ -202,7 +210,7 @@ export async function judgePool(
   key: string,
   modelName: string,
 ): Promise<AnswerVerdict> {
-  const state = poolState(pool);
+  const state = buildState(pool, question);
   const answers = (await postQuestions(key, modelName, state, buildAnswerQuestions(pool, question)))
     .answers as Record<string, Record<string, unknown>> | undefined ?? {};
 
@@ -224,6 +232,24 @@ export async function judgePool(
   const topScore = ranked.length > 0 ? ranked[0].score : 0;
   const poolHasAnswer = answers.pool_has_answer?.noul;
 
+  if (ranked.length === 0) {
+    // No candidates is a fact about the anchor, not about the vault: saying "absent" alone
+    // would present a disconnected note as "the vault does not know this".
+    return {
+      status: 'ok',
+      question,
+      anchor: pool.anchor,
+      model: modelName,
+      verdict: 'absent',
+      top_score: 0,
+      pool_has_answer: null,
+      ranked: [],
+      reachable: pool.reachable,
+      by_distance: pool.by_distance,
+      reason: `the pool is empty: no note is reachable from "${pool.anchor}" at the walked depth`,
+    };
+  }
+
   return {
     status: 'ok',
     question,
@@ -233,5 +259,9 @@ export async function judgePool(
     top_score: topScore,
     pool_has_answer: typeof poolHasAnswer === 'number' ? Math.round(poolHasAnswer * 100) / 100 : null,
     ranked,
+    // A verdict is only as trustworthy as the set it was drawn from. Reporting what the
+    // limit dropped is what separates "the vault does not say" from "I did not look".
+    reachable: pool.reachable,
+    by_distance: pool.by_distance,
   };
 }

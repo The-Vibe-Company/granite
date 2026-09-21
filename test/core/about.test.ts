@@ -408,12 +408,51 @@ describe('the default pool is bounded by what it costs, not by a round number', 
     return d;
   };
 
-  it('defaults to the whole nearest band, not a fixed 30', () => {
+  it('defaults to a useful pool, not a fixed 30 that drops the answer', () => {
+    // A fixed 30 dropped the note holding a client's price, which sat 54th of 87 direct
+    // neighbours. The default is a floor of 60, so that note is inside it.
     const d = big();
     const pool = entityPool(d, 'monka-care', {})!;
+    expect(pool.candidates.length).toBeGreaterThanOrEqual(60);
     const nearest = pool.by_distance.find(b => b.distance === 1)!;
-    expect(nearest.shown).toBe(nearest.reachable);
-    expect(pool.candidates.length).toBeGreaterThan(30);
+    expect(nearest.shown).toBe(60);
+    expect(nearest.reachable).toBe(63);
+    d.close();
+  });
+
+  it('keeps a useful pool when the nearest band is degenerate', () => {
+    // A leaf with one neighbour must not get a one-candidate pool while the notes that link
+    // to that neighbour are reachable one hop further out. "The nearest band" as a default
+    // failed exactly here: 34 anchors in the real vault have a single one-hop neighbour.
+    const d = new Database(':memory:');
+    d.exec(`
+      CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, status TEXT, body TEXT);
+      CREATE TABLE links (source_slug TEXT, target_slug TEXT, target_raw TEXT, context TEXT);
+    `);
+    const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)');
+    const link = d.prepare('INSERT INTO links VALUES (?,?,?,?)');
+    note.run('hub', 'Hub', 'organization', 'active', 'The only note that links to the leaf.');
+    note.run('leaf-a', 'Leaf', 'note', 'active', 'A note with exactly one neighbour.');
+    link.run('hub', 'leaf-a', 'leaf-a', 'x');
+    for (let i = 0; i < 5; i++) {
+      // These link the HUB, not the leaf, so the leaf's only neighbour stays the hub and
+      // these sit at distance 2 from it.
+      note.run(`far${i}`, `Far ${i}`, 'note', 'active', 'A note two hops from the leaf.');
+      link.run(`far${i}`, 'hub', 'hub', 'x');
+    }
+    const pool = entityPool(d, 'leaf-a', {})!;
+    const one = pool.by_distance.find(b => b.distance === 1)!;
+    expect(one.reachable).toBe(1);
+    // The default fills up from the next band instead of returning a single candidate.
+    expect(pool.candidates.length).toBeGreaterThan(1);
+    expect(pool.by_distance.find(b => b.distance === 2)!.shown).toBeGreaterThan(0);
+    d.close();
+  });
+
+  it('caps an explicit limit rather than sending an unbounded request', () => {
+    const d = big();
+    const pool = entityPool(d, 'monka-care', { limit: 5000 })!;
+    expect(pool.candidates.length).toBeLessThanOrEqual(255);
     d.close();
   });
 

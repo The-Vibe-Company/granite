@@ -98,7 +98,7 @@ function readProposalsFromStdin(): FactProposal[] {
   if (!raw.trim()) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
-    // Accept either a bare array or the shape `jev_facts.py facts` already emits.
+    // Accept either a bare array or the shape `the extractor facts` already emits.
     if (Array.isArray(parsed)) return parsed as FactProposal[];
     if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { facts?: unknown[] }).facts)) {
       return (parsed as { facts: FactProposal[] }).facts;

@@ -570,6 +570,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         reachable: z.number().int().describe('Real notes at this distance, returned or not.'),
         shown: z.number().int().describe('How many of them this pool returned.'),
       })).describe('Per-hop reachable/shown counts. Use this to tell "the vault does not have it" from "the limit dropped it" before concluding anything is absent.'),
+      sentences_omitted: z.boolean().optional().describe('True when this listing is titles only because the nearest band is large. Call again with sentences: 6 for the text a judge needs to cite.'),
     },
     annotations: readOnlyAnnotations,
   }, async ({ anchor, depth, limit, sentences }) => {
@@ -606,6 +607,12 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         score: z.number(),
         evidence: z.string().nullable().describe('The sentence Jev cited as carrying the answer, or null when it cited none.'),
       })).optional(),
+      reachable: z.number().int().optional().describe('Notes reachable at the walked depth, before the candidate limit was applied.'),
+      by_distance: z.array(z.object({
+        distance: z.number().int(),
+        reachable: z.number().int(),
+        shown: z.number().int(),
+      })).optional().describe('Per-hop reachable/shown counts. Read this before reporting absence: a verdict drawn from a truncated pool is a statement about the limit, not about the vault.'),
       reason: z.string().optional(),
     },
     annotations: readOnlyAnnotations,
@@ -648,6 +655,17 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       + `pool Noul ${verdict.pool_has_answer ?? 'n/a'} reported as context only.`,
       '',
     ];
+    if (verdict.reason) lines.push(verdict.reason, '');
+    const dropped = (verdict.by_distance ?? []).filter(band => band.shown < band.reachable);
+    if (dropped.length > 0) {
+      // An absence verdict from a capped pool is a claim about the limit, not the vault.
+      lines.push(
+        `Judged ${(verdict.ranked ?? []).length} of ${verdict.reachable} reachable note(s); `
+        + `not judged: ${dropped.map(b => `${b.reachable - b.shown} at distance ${b.distance}`).join(', ')}.`,
+        'Treat "absent" as provisional while anything is unjudged.',
+        '',
+      );
+    }
     for (const candidate of (verdict.ranked ?? []).slice(0, 8)) {
       lines.push(`- **[${candidate.score}] ${candidate.title}** \`${candidate.slug}\` (distance ${candidate.distance})`);
       if (candidate.evidence) lines.push(`  - ${candidate.evidence}`);

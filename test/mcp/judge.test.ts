@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import { entityPool } from '../../src/core/about.js';
-import { buildAnswerQuestions, evidenceSentence, LINK_THRESHOLD } from '../../src/mcp/judge.js';
+import { buildAnswerQuestions, buildState, evidenceSentence } from '../../src/mcp/judge.js';
 
 /**
  * The judge layer is the one place Granite calls a model, so its contract has two halves
@@ -124,11 +124,32 @@ describe('buildAnswerQuestions', () => {
   });
 });
 
-describe('thresholds', () => {
-  it('keeps the link threshold strictly between the measured controls', () => {
-    // Controls read 0.99 for a certain yes and 0.01 for a certain no, so anything in the
-    // open interval works; a value at either end would accept or reject everything.
-    expect(LINK_THRESHOLD).toBeGreaterThan(0.01);
-    expect(LINK_THRESHOLD).toBeLessThan(0.99);
+describe('the state sent to Jev', () => {
+  // The regression this pins is the worst kind: every question still validated, the verdict
+  // still came back, and it was scored against nothing. `poolState` sent only the candidates
+  // while `rel::` and `pool_has_answer` refer to "the question", and questions are evaluated
+  // independently — so the ranking had no antecedent and the thresholds were calibrated with
+  // one present.
+  it('includes the question alongside the candidates', () => {
+    const built = pool()!;
+    const state = buildState(built, 'What does the client pay for managed hosting?');
+    expect(state.question).toBe('What does the client pay for managed hosting?');
+    expect(Array.isArray(state.candidate_notes)).toBe(true);
+    expect(state.candidate_notes.length).toBeGreaterThan(0);
+  });
+
+  it('sends every question with its antecedent restated or resolvable', () => {
+    const built = pool()!;
+    const question = 'What does the client pay for managed hosting?';
+    const questions = buildAnswerQuestions(built, question);
+    const state = buildState(built, question);
+    for (const [id, value] of Object.entries(questions)) {
+      const instructions = (value as { instructions: string }).instructions;
+      // Either the question is in the instruction text, or it is in the state the
+      // instruction points at. One of the two must hold for every question.
+      const restated = instructions.includes(question);
+      const resolvable = typeof state.question === 'string' && state.question.length > 0;
+      expect(restated || resolvable, `${id} has no antecedent`).toBe(true);
+    }
   });
 });
