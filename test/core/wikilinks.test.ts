@@ -94,4 +94,26 @@ describe('resolveWikilinks', () => {
     expect(resolved[0].resolved).toBe(false);
     expect(resolved[0].resolved_slug).toBeUndefined();
   });
+
+  it('resolves a link to a legacy slug that ends with a separator', () => {
+    // Regression: vaults written before the trailing-separator fix hold slugs like
+    // `long-title-`. slugify() strips trailing separators, so the exact-slug branch
+    // could never match, and the note's own canonical slug was reported as broken.
+    const legacy = [...notes, makeNote('long-title-', 'Long title cut on a separator')];
+
+    for (const target of ['long-title-', 'long-title']) {
+      const resolved = resolveWikilinks(parseWikilinks(`See [[${target}]].`), legacy);
+      expect(resolved[0].resolved).toBe(true);
+      expect(resolved[0].resolved_slug).toBe('long-title-');
+    }
+  });
+
+  it('prefers an exact slug over a legacy separator-suffixed slug', () => {
+    const both = [
+      makeNote('ambiguous', 'Ambiguous'),
+      makeNote('ambiguous-', 'Ambiguous legacy'),
+    ];
+    const resolved = resolveWikilinks(parseWikilinks('See [[ambiguous]].'), both);
+    expect(resolved[0].resolved_slug).toBe('ambiguous');
+  });
 });

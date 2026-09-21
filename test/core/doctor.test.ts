@@ -96,4 +96,32 @@ describe('doctor', () => {
     expect(provenanceIssues).toHaveLength(1);
     expect(provenanceIssues[0].level).toBe('warning');
   });
+
+  it('resolves links written with a legacy slug that ends with a separator', () => {
+    // Regression. Separators used to be stripped *before* the 60-character cut, so a
+    // long title could produce a slug with a trailing '-'. slugify() strips trailing
+    // separators, so such a slug never slugified back to itself and the note's own
+    // canonical slug was reported as a broken wikilink.
+    const title = 'OpenAI × Hugging Face — model evaluation security incident (July 2026)';
+    const target = createNote(tmpDir, config, 'source', title, 'Body.\n');
+    expect(target.slug.endsWith('-')).toBe(false);
+
+    // Simulate a vault written before the fix: the file keeps the separator the cut
+    // landed on, so the on-disk slug is one character longer.
+    const legacyPath = path.join(path.dirname(target.filepath), `${target.slug}-.md`);
+    fs.renameSync(target.filepath, legacyPath);
+
+    createNote(tmpDir, config, 'note', 'Legacy Links', [
+      `With the separator: [[${target.slug}-]].`,
+      `Without the separator: [[${target.slug}]].`,
+      '',
+    ].join('\n'));
+
+    const db = getDb();
+    const issues = runDoctor(tmpDir, config, db);
+    db.close();
+
+    const broken = issues.filter(i => i.message.includes('Broken wikilink'));
+    expect(broken).toHaveLength(0);
+  });
 });

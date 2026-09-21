@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { GraniteConfig, Note } from './types.js';
 import { listNotes } from './note.js';
 import { parseWikilinks } from './wikilinks.js';
-import { slugify } from './slugify.js';
+import { slugVariants } from './slugify.js';
 import { collectIndexedFieldValues } from './hooks.js';
 import { getIndexDbPath } from './vault.js';
 
@@ -366,9 +366,12 @@ function upsertNoteAndLinks(db: Database.Database, note: Note, config?: GraniteC
 
 function resolveLinksAgainstNotes(links: ReturnType<typeof parseWikilinks>, allNotes: Note[]) {
   return links.map(link => {
-    const targetSlug = slugify(link.target);
-
-    let found = allNotes.find(note => note.slug === targetSlug);
+    // Tolerate legacy slugs that end with a separator left by the 60-char cut.
+    let found: Note | undefined;
+    for (const candidate of slugVariants(link.target)) {
+      found = allNotes.find(note => note.slug === candidate);
+      if (found) break;
+    }
     if (!found) {
       found = allNotes.find(note => note.frontmatter.title.toLowerCase() === link.target.toLowerCase());
     }
@@ -387,15 +390,21 @@ function resolveLinksAgainstNotes(links: ReturnType<typeof parseWikilinks>, allN
 }
 
 function resolveLinkTarget(db: Database.Database, target: string): string | null {
-  const targetSlug = slugify(target);
   const exact = db.prepare(`
     SELECT slug
     FROM notes
     WHERE slug = ? OR lower(title) = ?
     LIMIT 1
-  `).get(targetSlug, target.toLowerCase()) as { slug: string } | undefined;
+  `).get(slugVariants(target)[0] ?? '', target.toLowerCase()) as { slug: string } | undefined;
 
   if (exact) return exact.slug;
+
+  // Legacy slugs can end with a separator, so `<slug>-` needs its own lookup.
+  for (const variant of slugVariants(target).slice(1)) {
+    const legacy = db.prepare('SELECT slug FROM notes WHERE slug = ? LIMIT 1')
+      .get(variant) as { slug: string } | undefined;
+    if (legacy) return legacy.slug;
+  }
 
   const rows = db.prepare('SELECT slug, aliases FROM notes').all() as Array<{ slug: string; aliases: string }>;
   for (const row of rows) {
