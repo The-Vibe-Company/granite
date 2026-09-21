@@ -17,6 +17,31 @@ Granite (`granite` CLI) is a local-first markdown memory system for humans and a
   - Prefer improving tool descriptions, prompts, and deterministic planning logic over adding another endpoint.
   - If a new endpoint is necessary, it must have one clear role in the workflow and no ambiguous overlap with existing endpoints.
 
+### The one permitted model: Jev
+
+**Jev (TypeSafe System One) is the single exception**, and it is an exception of
+kind, not of degree: it is a *classifier*, not a generative model. It returns a
+`choice`, a `score` or a `noul` probability over a bounded set — typed values code
+branches on. It never writes prose, never plans, and never runs a loop.
+
+- **`src/core/` stays pure.** No network call, no API key, no model reference. The
+  graph walk, sentence selection and thresholds are deterministic and must remain
+  testable without a key.
+- **`src/mcp/` may call Jev**, so Granite can bound a candidate set deterministically
+  and then *delegate the semantic judgment* instead of asking the calling agent to
+  orchestrate it. This respects the rule above rather than breaking it: intelligence
+  still lives outside Granite, it is only Granite that is allowed to invoke it.
+- **Opt-in, and it fails closed.** Without `TYPESAFE_API_KEY` the feature reports
+  `unavailable` and the rest of Granite — every other tool, the whole CLI — works
+  unchanged. This follows the existing `ferrules` PDF-extractor precedent: resolve an
+  external tool, degrade clearly when it is absent.
+- **The boundary that does not move:** no embeddings, no vector store, no generative
+  text, no autonomous loop, no scheduler, no telemetry. Jev answers questions about a
+  set Granite chose; it never chooses what to look at.
+
+Anything else that would think on Granite's behalf is still out of bounds, and the
+answer to "can this be deterministic?" is still yes by default.
+
 Preferred workflow layers:
 - orient
 - research

@@ -1,9 +1,9 @@
 # Optional semantic judgments with Jev
 
-Granite stays deterministic and offline: *"No AI inside"*. This reference
-describes an **opt-in** companion layer that asks a hosted model for typed
-judgments, while Granite keeps owning recall, thresholds and every decision to
-write.
+Granite stays deterministic and offline by default. This reference describes an
+**opt-in** semantic layer that asks Jev — a classifier, not a language model — for
+typed judgments, while Granite keeps owning recall, thresholds and every decision to
+write. With no key, nothing here runs and Granite behaves exactly as before.
 
 Use it when lexical signals are not enough — connecting orphans, spotting
 duplicates, or deciding whether two notes are really the same entity. Skip it
@@ -24,24 +24,27 @@ python3 scripts/measure_neighbor_context.py        # regression test for a rejec
 `link` and `merge` are different questions with different commands. Read the two
 sections on that below before using either.
 
-## Why a companion layer and not a Granite feature
+## Why it started as a companion layer, and what changed
 
-Granite's product boundary is markdown storage, index/graph operations and
-deterministic workflow rules — never prompt execution, embeddings, vector search
-or an embedded LLM. Two concrete reasons:
+This layer began outside Granite, for two concrete reasons that are still worth
+knowing:
 
 - `granite search` and `granite recommend` run on the hot path (every note
   write, every search). A network call there would force the whole synchronous
   note-creation chain to become async.
-- The README promises "No AI inside". Adding a model call to `src/` would break
-  a documented commitment and change behavior for everyone.
+- The product rule then read "no embedded LLM, anywhere".
 
-So the model lives in this skill, behind an environment variable, and Granite
-keeps working exactly as before without it.
+**The rule has since been amended, narrowly.** Jev is permitted — not as an LLM
+but as a *classifier*: it returns a choice, a score or a probability over a set
+Granite chose, never prose, never a plan, never a loop. It may be called from
+`src/mcp/`; `src/core/` stays free of network calls and API keys. See
+[CLAUDE.md](../../../CLAUDE.md) for the exact boundary.
 
-The precedent inside Granite is the optional `ferrules` PDF extractor: resolve
-an external tool, and when it is missing return a degraded result with install
-instructions instead of failing. This layer follows the same shape.
+The hot-path objection above is **unchanged and load-bearing**: Jev must never
+move into note creation or indexing, because that turns a synchronous local
+write into a network round trip. The scripts here still follow the same shape as
+the optional `ferrules` PDF extractor — resolve an external tool, degrade
+clearly when it is missing.
 
 ## Setup
 

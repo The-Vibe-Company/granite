@@ -194,13 +194,22 @@ The point is not to give an agent a file browser. The point is to give it a work
 
 Granite will **never**:
 
-- embed an LLM, run prompts, or hold an API key
+- run a generated word, plan a step, or loop on its own
 - compute embeddings or ship a vector store
 - run background agents or a scheduler
-- phone home — no telemetry, no account, no cloud dependency
+- phone home — no telemetry, no account, no cloud dependency of its own
 - add overlapping CLI/MCP endpoints that blur the loop
 
 This is why your agent can be trusted with write access. The vault is a deterministic substrate. The intelligence is yours (or Claude's, or GPT's, or whoever you pay this quarter).
+
+**One exception, and it is not a language model.** Granite's MCP layer can call
+[Jev](https://typesafe.ai), TypeSafe's System One classifier, so it can bound a candidate
+set deterministically and then *delegate the judgment* of which candidate answers a
+question — instead of leaving that assembly work to your agent. Jev returns a choice, a
+score, or a probability over a set Granite chose; it never writes prose, never plans, and
+never decides what to look at. It is **off by default**: with no `TYPESAFE_API_KEY` the
+feature reports itself unavailable and everything else works exactly as before. Granite's
+core (`src/core/`) still holds no model reference, no network call and no API key.
 
 ## Beyond one machine
 
@@ -303,7 +312,7 @@ Nothing. It's a folder of markdown files. The index is derived and disposable; `
 <details>
 <summary><b>Does anything phone home?</b></summary>
 
-No. No telemetry, no account, no network calls — unless you explicitly deploy to your own sprite, sync to your own machines, or run `granite serve` with cloud credentials configured (use `--no-cloud` to stay fully offline).
+No. No telemetry, no account, no network calls — unless you explicitly deploy to your own sprite, sync to your own machines, or run `granite serve` with cloud credentials configured (use `--no-cloud` to stay fully offline). The optional Jev judgment is the one outbound call Granite can make on your behalf, it only happens from the MCP layer, and only when you have set `TYPESAFE_API_KEY` yourself.
 
 </details>
 
@@ -320,7 +329,7 @@ No. No telemetry, no account, no network calls — unless you explicitly deploy 
 
 Granite is pre-1.0 and moving fast — see [CHANGELOG.md](CHANGELOG.md) for release history. The product boundary stays fixed: Granite stores and indexes local knowledge; agents bring the intelligence.
 
-Issues and focused PRs are welcome. For local development, read [CLAUDE.md](CLAUDE.md). The key product rule is simple: no embedded LLM, no vector store, no autonomous scheduler inside Granite.
+Issues and focused PRs are welcome. For local development, read [CLAUDE.md](CLAUDE.md). The key product rule is simple: no embedded LLM, no vector store, no autonomous scheduler inside Granite — the single permitted model is Jev, a classifier the MCP layer may call, off by default.
 
 ---
 
