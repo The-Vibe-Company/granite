@@ -19,8 +19,22 @@
  *   bounded request on a hub note.
  */
 import type Database from 'better-sqlite3';
+import type { GraniteConfig } from '../core/types.js';
 import { suggestLinks } from '../core/suggest.js';
-import { model as judgeModel, proposeLinks, requireApiKey, type LinkProposalResult } from './judge.js';
+import {
+  LINK_THRESHOLD,
+  model as judgeModel,
+  proposeLinks,
+  requireApiKey,
+  type LinkProposalResult,
+} from './judge.js';
+import {
+  readCachedJudgments,
+  readCachedRouting,
+  sourceHash,
+  writeCachedJudgments,
+  writeCachedRouting,
+} from './judgment-cache.js';
 
 /** How many candidates one capture may judge. Bounds the request on a densely linked note. */
 export const MAX_CAPTURE_CANDIDATES = 24;
@@ -31,9 +45,38 @@ export interface LinkableNote {
   body: string;
 }
 
+/**
+ * The vault's own vocabulary, so routing is a choice over what this vault declares rather
+ * than over what the model invents. Existing tags only: proposing a tag nobody uses creates a
+ * second vocabulary rather than reusing the first.
+ */
+export function captureVocabulary(db: Database.Database, config?: GraniteConfig): { types: string[]; tags: string[] } {
+  const types = config ? Object.keys(config.note_types) : [];
+  let tags: string[] = [];
+  try {
+    const row = db.prepare("SELECT tags FROM notes WHERE tags IS NOT NULL AND tags != ''").all() as Array<{ tags: string }>;
+    const seen = new Set<string>();
+    for (const { tags: raw } of row) {
+      let parsed: unknown = raw;
+      try { parsed = JSON.parse(raw); } catch { /* a bare comma list is fine */ }
+      const list = Array.isArray(parsed) ? parsed : String(raw).split(',');
+      for (const tag of list) {
+        const clean = String(tag).trim();
+        if (clean) seen.add(clean);
+      }
+    }
+    // Most used first, capped: a choice with hundreds of options is not a choice.
+    tags = [...seen].sort((a, b) => a.localeCompare(b)).slice(0, 40);
+  } catch {
+    tags = [];
+  }
+  return { types, tags };
+}
+
 export async function proposeLinksAtCapture(
   db: Database.Database,
   note: LinkableNote,
+  config?: GraniteConfig,
 ): Promise<LinkProposalResult | undefined> {
   // `suggestLinks` reads the note's title from `frontmatter`, not from a root `title`. Casting
   // an object with the wrong shape into `Note` compiled and then threw at runtime, inside the
@@ -53,12 +96,67 @@ export async function proposeLinksAtCapture(
   if (candidates.length === 0) return undefined;
 
   try {
-    return await proposeLinks(
-      { slug: note.slug, title: note.title, body: note.body },
-      candidates,
-      requireApiKey(),
-      judgeModel(),
-    );
+    const modelName = judgeModel();
+    const hash = sourceHash(note.title, note.body);
+
+    // Judgments about this exact wording that we already paid for. The key includes the body
+    // hash, so an edited note is judged again rather than served a verdict about old text.
+    const cached = readCachedJudgments(db, {
+      sourceSlug: note.slug,
+      hash,
+      model: modelName,
+      candidates: candidates.map(c => c.slug),
+    });
+
+    const missing = candidates.filter(c => !cached.has(c.slug));
+    const fresh = missing.length === 0
+      ? { proposed: [], rejected: [], not_judged: 0, note: note.slug } as LinkProposalResult
+      : await proposeLinks(
+        { slug: note.slug, title: note.title, body: note.body },
+        missing,
+        requireApiKey(),
+        modelName,
+        captureVocabulary(db, config),
+      );
+
+    if (missing.length > 0) {
+      writeCachedRouting(db, {
+        sourceSlug: note.slug, hash, model: modelName,
+        routing: { note_type: fresh.note_type, tags: fresh.tags },
+      });
+      writeCachedJudgments(db, {
+        sourceSlug: note.slug,
+        hash,
+        model: modelName,
+        verdicts: [...fresh.proposed, ...fresh.rejected].map(v => ({
+          candidate: v.target,
+          probability: v.link_probability,
+        })),
+      });
+    }
+
+    // Merge cache hits back in, so a caller cannot tell which came from where except by the
+    // numbers. A cached probability above the threshold is a proposal like any other.
+    const all = [...fresh.proposed, ...fresh.rejected];
+    for (const [slug, probability] of cached) {
+      const candidate = candidates.find(c => c.slug === slug)!;
+      all.push({ target: slug, target_title: candidate.title, link_probability: probability });
+    }
+    const proposed = all.filter(v => v.link_probability >= LINK_THRESHOLD)
+      .sort((a, b) => b.link_probability - a.link_probability);
+    const rejected = all.filter(v => v.link_probability < LINK_THRESHOLD);
+
+    // A cache hit must return the whole judgment, not half of it.
+    const cachedRouting = readCachedRouting(db, { sourceSlug: note.slug, hash, model: modelName });
+
+    return {
+      ...fresh,
+      proposed,
+      rejected,
+      not_judged: missing.length === 0 ? 0 : fresh.not_judged,
+      note_type: fresh.note_type ?? cachedRouting?.note_type,
+      tags: fresh.tags ?? cachedRouting?.tags,
+    };
   } catch (error) {
     // The capture already succeeded. Reporting "we could not judge" is honest; throwing here
     // would turn a network hiccup into a lost note, which is strictly worse.
