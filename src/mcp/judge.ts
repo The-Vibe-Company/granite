@@ -57,12 +57,12 @@ const TIMEOUT_MS = 60_000;
 export const MAX_REQUEST_BYTES = 128_000;
 
 /**
- * The bytes the wire body spends on everything that is not the state or the question set: the
- * `model` field and the two wrapper keys. The model name is caller-overridable and therefore not
- * knowable here, so the allowance is stated rather than measured — it is 128 bytes, against a
- * 128,000-byte ceiling.
+ * The bytes the wire body spends on everything that is not the state or the question set: the two
+ * wrapper keys, `{"state":…,"questions":…}`. The `model` field is added by the caller that knows the
+ * name, so a caller-overridden `TYPESAFE_MODEL` cannot silently eat this reserve — 64 bytes is
+ * generous for ~34 bytes of keys.
  */
-const WIRE_OVERHEAD_BYTES = 128;
+const WIRE_OVERHEAD_BYTES = 64;
 
 /**
  * Fit the pool inside its byte budget by measuring the body, not by estimating it.
@@ -203,6 +203,29 @@ export interface AnswerVerdict {
   reason?: string;
 }
 
+/**
+ * Every note a verdict did not judge, with the bound that left it out.
+ *
+ * Two different bounds drop notes and they are known in different places: the candidate limit shows
+ * up in `by_distance`, which describes the POOL, and the request ceiling in `request_trim`, which
+ * describes what was SENT. Rendering only the first made a real titles-only answer read "Judged 201
+ * of 363; not judged: 108" — 201 + 108 = 309. Both together always add up to `reachable - judged`.
+ */
+export function unjudgedNotes(
+  verdict: AnswerVerdict,
+): Array<{ bound: 'limit' | 'ceiling'; distance?: number; count: number }> {
+  const rows: Array<{ bound: 'limit' | 'ceiling'; distance?: number; count: number }> = [];
+  for (const band of verdict.by_distance ?? []) {
+    if (band.shown < band.reachable) {
+      rows.push({ bound: 'limit', distance: band.distance, count: band.reachable - band.shown });
+    }
+  }
+  const trim = verdict.request_trim;
+  const dropped = (trim?.candidates_in_pool ?? 0) - (trim?.candidates_sent ?? 0);
+  if (dropped > 0) rows.push({ bound: 'ceiling', count: dropped });
+  return rows;
+}
+
 /** The configured key, or undefined. Startup checks use this; judgments use `requireApiKey`. */
 export function apiKey(): string | undefined {
   const key = process.env.TYPESAFE_API_KEY?.trim();
@@ -301,9 +324,18 @@ function assembleState(pool: EntityPool, question: string, candidates = pool.can
  * `state` and `questions` are assembled from the SAME candidate list passed in, so what is
  * measured here is what gets sent.
  */
-export function requestBytes(pool: EntityPool, question: string, candidates = pool.candidates): number {
+export function requestBytes(
+  pool: EntityPool,
+  question: string,
+  candidates = pool.candidates,
+  modelName = '',
+): number {
   const body = { state: assembleState(pool, question, candidates), questions: questionsFor(pool, candidates) };
-  return Buffer.byteLength(JSON.stringify(body), 'utf8') + WIRE_OVERHEAD_BYTES;
+  // The model name is measured, not allowed for: it is caller-overridable, and a name long enough
+  // would otherwise turn the reserve into an under-reserve and make `postQuestions` refuse a body
+  // this selector approved.
+  return Buffer.byteLength(JSON.stringify(body), 'utf8')
+    + WIRE_OVERHEAD_BYTES + Buffer.byteLength(modelName, 'utf8');
 }
 
 /** The most sentences any candidate in this pool carries — what the caller asked for, as built. */
@@ -319,7 +351,11 @@ function sentencesPerNote(candidates: EntityPool['candidates']): number {
  * this set, so the ranking, the "judged N of M" count and the questions asked all describe the
  * same notes rather than three different ones.
  */
-export function selectCandidates(pool: EntityPool, question: string): EntityPool['candidates'] {
+export function selectCandidates(
+  pool: EntityPool,
+  question: string,
+  modelName = '',
+): EntityPool['candidates'] {
   return trimToByteBudget(
     pool.candidates,
     MAX_REQUEST_BYTES,
@@ -328,7 +364,7 @@ export function selectCandidates(pool: EntityPool, question: string): EntityPool
     // callers settle on different sets — one test caught them disagreeing by a single candidate —
     // and measuring the state alone reserved nothing for the ~770 bytes per candidate the
     // relevance and evidence questions cost.
-    candidates => requestBytes(pool, question, candidates),
+    candidates => requestBytes(pool, question, candidates, modelName),
   );
 }
 
@@ -445,7 +481,7 @@ export async function judgePool(
   // trim had removed as scored 0 — indistinguishable from a note Jev scored 0 — and inflated the
   // "Judged N of M" count: measured 2 such phantoms at a 45-character question and 16 at 200 on
   // the titles-only path, where the trim was removing notes the real body had room for.
-  const candidates = selectCandidates(pool, question);
+  const candidates = selectCandidates(pool, question, modelName);
   const state = assembleState(pool, question, candidates);
   const answers = (await postQuestions(key, modelName, state, questionsFor(pool, candidates)))
     .answers as Record<string, Record<string, unknown>> | undefined ?? {};
@@ -469,9 +505,16 @@ export async function judgePool(
 
   const topScore = ranked.length > 0 ? ranked[0].score : 0;
   const poolHasAnswer = answers.pool_has_answer?.noul;
-  const excerptsShortened = candidates.some(
-    (candidate, index) => candidate.sentences.length !== pool.candidates[index]?.sentences.length,
-  );
+  // Compared by content, not by count: the width branch (200/120/60-character excerpts) shortens a
+  // sentence without changing how many there are, and a count-only test called that an untouched
+  // request. Measured on synthetic one-sentence pools, where that branch is the one that runs.
+  const before = new Map(pool.candidates.map(candidate => [candidate.slug, candidate.sentences]));
+  const excerptsShortened = candidates.some((candidate) => {
+    const original = before.get(candidate.slug);
+    return original === undefined
+      || original.length !== candidate.sentences.length
+      || candidate.sentences.some((sentence, index) => sentence !== original[index]);
+  });
   const requestTrim = candidates.length !== pool.candidates.length || excerptsShortened
     ? {
       candidates_in_pool: pool.candidates.length,

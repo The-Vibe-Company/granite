@@ -32,6 +32,7 @@ import {
   judgePool,
   model as judgeModel,
   requireApiKey,
+  unjudgedNotes,
 } from './judge.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
@@ -663,27 +664,28 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     if ((verdict.beyond_depth ?? 0) > 0) {
       lines.push(`${verdict.beyond_depth} further note(s) sit one hop beyond the walked depth: this answer is about the depth reached, not about the vault.`, '');
     }
-    const dropped = (verdict.by_distance ?? []).filter(band => band.shown < band.reachable);
-    if (dropped.length > 0) {
+    const trim = verdict.request_trim;
+    // Both bounds that can leave a note unjudged, counted separately so the arithmetic closes: the
+    // candidate limit (from `by_distance`, which describes the pool) and the request ceiling (from
+    // `request_trim`, which describes what was sent).
+    const unjudged = unjudgedNotes(verdict);
+    if (unjudged.length > 0) {
       // An absence verdict from a capped pool is a claim about the limit, not the vault.
+      const notJudged = unjudged.map(row => (row.bound === 'ceiling'
+        ? `${row.count} left out by the request ceiling`
+        : `${row.count} beyond the candidate limit at distance ${row.distance}`));
       lines.push(
         `Judged ${(verdict.ranked ?? []).length} of ${verdict.reachable} reachable note(s); `
-        + `not judged: ${dropped.map(b => `${b.reachable - b.shown} at distance ${b.distance}`).join(', ')}.`,
+        + `not judged: ${notJudged.join(', and ')}.`,
         'Treat "absent" as provisional while anything is unjudged.',
         '',
       );
     }
-    const trim = verdict.request_trim;
-    if (trim) {
-      // The pool was asked for more than one request can carry. Say which of the two things
-      // happened, because only one of them loses notes; the other only loses detail.
-      const did = trim.candidates_sent < trim.candidates_in_pool
-        ? `${trim.candidates_sent} of the pool's ${trim.candidates_in_pool} candidate(s) were sent`
-        : `all ${trim.candidates_sent} candidate(s) were sent`;
+    if (trim?.excerpts_shortened) {
+      // Missing detail, not missing notes: the ranking below is still every candidate that was sent.
       lines.push(
-        `The measured request ceiling shaped this judgment: ${did}`
-        + `${trim.excerpts_shortened ? ', each with a shorter excerpt than the one requested' : ''}. `
-        + 'The ranking below lists exactly what was judged.',
+        'Every excerpt in this judgment is shorter than the one requested, to keep the batched request '
+        + 'under the measured ceiling.',
         '',
       );
     }

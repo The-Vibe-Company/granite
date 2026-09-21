@@ -11,6 +11,7 @@ import {
   proposeLinks,
   requestBytes,
   selectCandidates,
+  unjudgedNotes,
 } from '../../src/mcp/judge.js';
 
 /**
@@ -488,6 +489,84 @@ describe('the byte budget follows the real wire body, not a constant', () => {
     const at = (count: number) => requestBytes(pool, longQuestion, candidates.slice(0, count));
     expect(at(selected.length)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
     expect(at(selected.length + 1)).toBeGreaterThan(MAX_REQUEST_BYTES);
+  });
+
+  it('reports truncated excerpts as shortened, not as an untouched request', async () => {
+    // The 200/120/60-character branch cuts the text of every excerpt without changing how many
+    // sentences there are, so a count-based test called the request untouched, and `request_trim`
+    // stayed absent while the excerpts were 8x shorter. Latent only because that branch needs more
+    // one-sentence candidates than the answer tool can build; silent when it goes live.
+    const candidates = Array.from({ length: 120 }, (_, i) => ({
+      slug: `n${i}`,
+      title: `Note ${i}`,
+      type: 'note',
+      distance: 1,
+      sentences: [`Note ${i} states the price. ` + 'mot '.repeat(400)],
+    }));
+    const pool: any = {
+      anchor: 'hub',
+      anchor_title: 'Hub',
+      reachable: 120,
+      candidates,
+      by_distance: [{ distance: 1, reachable: 120, shown: 120 }],
+      beyond_depth: 0,
+    };
+    expect(selectCandidates(pool, shortQuestion).length).toBe(120);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ answers: { pool_has_answer: { noul: 0.1 } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    try {
+      const verdict = await judgePool(pool, shortQuestion, 'k', 'm');
+      expect(verdict.request_trim).toEqual({
+        candidates_in_pool: 120,
+        candidates_sent: 120,
+        excerpts_shortened: true,
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('measures the model name into the request, because it is caller-overridable', () => {
+    // The reserve is the wrapper keys plus the model field. A `TYPESAFE_MODEL` longer than the
+    // allowance used to under-reserve silently, which turns a trimmable pool into a refusal.
+    const d = widePool();
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    const selected = selectCandidates(pool, longQuestion);
+    const withoutName = requestBytes(pool, longQuestion, selected);
+    const longName = 'm'.repeat(300);
+    expect(requestBytes(pool, longQuestion, selected, longName) - withoutName).toBe(300);
+    // And the selection really is made against the larger reserve.
+    expect(selectCandidates(pool, longQuestion, longName).length)
+      .toBeLessThanOrEqual(selectCandidates(pool, longQuestion).length);
+    d.close();
+  });
+
+  it('accounts for every unjudged note, so the rendered counts add up', () => {
+    // The candidate limit and the request ceiling are known in different places; reporting only the
+    // first made a real titles-only answer read "Judged 201 of 363; not judged: 108".
+    const verdict = {
+      status: 'ok' as const,
+      question: 'Quel est le prix ?',
+      verdict: 'partial' as const,
+      top_score: 0.8,
+      ranked: Array.from({ length: 201 }, (_, i) => ({
+        slug: `n${i}`, title: `Note ${i}`, type: 'note', distance: 1, score: 0.5, evidence: null,
+      })),
+      reachable: 363,
+      by_distance: [{ distance: 1, reachable: 363, shown: 255 }],
+      request_trim: { candidates_in_pool: 255, candidates_sent: 201, excerpts_shortened: false },
+    };
+    const rows = unjudgedNotes(verdict);
+    const counted = rows.reduce((sum, row) => sum + row.count, 0);
+    expect(counted).toBe(verdict.reachable - verdict.ranked.length);
+    expect(rows).toEqual([
+      { bound: 'limit', distance: 1, count: 108 },
+      { bound: 'ceiling', count: 54 },
+    ]);
   });
 
   it('reports a trim that shortened excerpts without losing a single note', async () => {
