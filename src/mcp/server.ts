@@ -23,6 +23,7 @@ import {
   renderWakeupMarkdown,
 } from '../../shared/mcp-markdown.js';
 import { GRANITE_VERSION } from '../version.js';
+import { renderAboutMarkdown, renderPoolMarkdown } from '../core/about.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
 import type { GraniteMcpRuntime } from './runtime.js';
@@ -97,6 +98,8 @@ function buildServerInstructions(runtime: GraniteMcpRuntime, role: McpAccessRole
       '- **granite_extract_document** — read a local document into raw extracted text without importing it',
     ] : []),
     '- **granite_understand_note** — inspect a note in context, not in isolation',
+    '- **granite_about** — everything the vault knows about an entity, reached through its links rather than its wording',
+    '- **granite_pool** — the bounded candidate set worth judging for a question, ordered by graph distance',
     ...(canWrite ? [
       '- **granite_adjudicate_garden_opportunity** — explicitly downrank or clear a garden opportunity the operator has adjudicated',
       '- **granite_capture_knowledge** — capture new knowledge into the vault',
@@ -135,6 +138,7 @@ function buildServerInstructions(runtime: GraniteMcpRuntime, role: McpAccessRole
     '## Working Principles',
     '',
     '- **Read in context.** Prefer granite_understand_note over piecing together note, backlinks, and suggestions manually.',
+    '- **When you cannot guess the wording, go through the graph.** granite_about answers "what does the vault know about X" without depending on the language the notes are written in, and granite_pool emits the notes worth judging around an anchor. Measured on a real vault, keyword search found the answering note 2 times in 15 when the question and the note were in different languages, while graph access put it in the candidate set 14 times in 15 — but ordering by distance alone is no better than keyword search, so the pool still needs a judge to pick. Ordering is by graph distance only, never by lexical overlap.',
     ...(canWrite ? [
       '- **Capture first, refine second.** Capture quickly, then use workflow prompts to turn captures into durable knowledge.',
       '- **Link aggressively.** Use [[wikilinks]] in note bodies and follow recommendations after each revision.',
@@ -475,6 +479,38 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     return {
       content: buildUnderstandNoteContent(result),
     };
+  });
+
+  server.registerTool('granite_about', {
+    title: 'About Granite Entity',
+    description: 'Everything the vault knows about one note, reached through its links rather than through its wording. Use this when you know an entity (a client, a person, a project) and want the notes that reference it — it is language-independent, so it works when the notes are in a different language than your question. Groups references by the referring note\'s type, carries the sentence explaining each link, and collapses a note that mentions the entity several times into one entry.',
+    inputSchema: {
+      slug: z.string().describe('Slug of the entity to read.'),
+      types: z.array(z.string()).optional().describe('Restrict to these note types (e.g. ["meeting", "source"]). The counts returned describe the filtered view.'),
+      direction: z.enum(['both', 'incoming', 'outgoing']).optional().describe('Which references to include. Defaults to both.'),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ slug, types, direction }) => {
+    const entity = runtime.readEntity(slug, { types });
+    return toolResult(renderAboutMarkdown(entity, {
+      incoming: direction !== 'outgoing',
+      outgoing: direction !== 'incoming',
+    }));
+  });
+
+  server.registerTool('granite_pool', {
+    title: 'Granite Candidate Pool',
+    description: 'Emit the bounded set of notes worth judging for a question, as a deterministic candidate pool ordered by graph distance. Use this before any semantic judging: Granite decides what is worth judging (free, no model, no network) and a judge decides which candidate answers the question. Ordering is by graph distance only, never by lexical overlap, so a note in another language still lands in the set. Each candidate carries deterministic sentences plus the total reachable count, so a caller can tell "nothing there" from "I capped it".',
+    inputSchema: {
+      anchor: z.string().describe('Slug of the note to grow the pool around.'),
+      depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to return. Defaults to 30.'),
+      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 returns titles only. Defaults to 6.'),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ anchor, depth, limit, sentences }) => {
+    const pool = runtime.buildPool(anchor, { depth, limit, sentences });
+    return toolResult(renderPoolMarkdown(pool));
   });
 
   if (canWrite) server.registerTool('granite_revise_note', {

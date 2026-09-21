@@ -140,6 +140,47 @@ export interface EntityPool {
   candidates: PoolEntry[];
 }
 
+/** An `AboutEntity` with its groups narrowed to the requested types. */
+export interface FilteredAbout extends AboutEntity {
+  /** The types that were requested, or undefined when nothing was filtered. */
+  filtered_by?: string[];
+  /**
+   * The entity's total references before any filter. Kept so a renderer can tell "nothing
+   * points at this note at all" from "nothing of the type you asked for does" — reporting
+   * the first when the second is true is a false statement about the vault.
+   */
+  unfiltered_counts?: { incoming: number; outgoing: number };
+}
+
+/**
+ * Narrow an entity's references to the requested types.
+ *
+ * The counts are recomputed from the filtered groups rather than carried over, because they
+ * describe what a caller is about to read. Keeping the unfiltered totals printed
+ * "3 note(s) link here" directly above a two-note group.
+ */
+export function filterAbout(entity: AboutEntity, types?: string[]): FilteredAbout {
+  const wanted = types?.filter(Boolean) ?? [];
+  const unfiltered_counts = { ...entity.counts };
+  if (wanted.length === 0) return { ...entity, unfiltered_counts };
+
+  const keep = (group: Record<string, EntityReference[]>) =>
+    Object.fromEntries(Object.entries(group).filter(([type]) => wanted.includes(type)));
+  const count = (group: Record<string, EntityReference[]>) =>
+    Object.values(group).reduce((total, list) => total + list.length, 0);
+
+  const incoming = keep(entity.incoming);
+  const outgoing = keep(entity.outgoing);
+  return {
+    ...entity,
+    incoming,
+    outgoing,
+    counts: { incoming: count(incoming), outgoing: count(outgoing) },
+    filtered_by: wanted,
+    unfiltered_counts,
+  };
+}
+
 /**
  * Candidate sentences, chosen deterministically so recall stays in code.
  *
@@ -250,4 +291,92 @@ export function entityPool(
     reachable: distance.size,
     candidates,
   };
+}
+
+/**
+ * Render an entity as markdown, for callers that return text rather than printing.
+ *
+ * Empty groups are omitted, and an entity with no references says so explicitly: "no other
+ * note leads here" is information a reader acts on, and silence is not the same answer.
+ */
+export function renderAboutMarkdown(
+  entity: FilteredAbout,
+  options: { incoming?: boolean; outgoing?: boolean } = {},
+): string {
+  const lines: string[] = [`# ${entity.title}`, '', `${entity.type} · ${entity.status}`, ''];
+
+  // `counts` is already filtered, so an entity that has references but none of the
+  // requested type is not the same as an entity nothing points at.
+  const total = entity.unfiltered_counts ?? entity.counts;
+  const entityIsUnreferenced = total.incoming + total.outgoing === 0;
+  const filteredToNothing = entity.counts.incoming + entity.counts.outgoing === 0;
+  const requested = entity.filtered_by?.join(', ');
+
+  if (filteredToNothing) {
+    if (entityIsUnreferenced) {
+      lines.push('Nothing links to this note and it links to nothing.');
+      lines.push('');
+      lines.push('That is worth knowing: no other note leads here.');
+    } else {
+      lines.push(`No ${requested} note references this one, though ${total.incoming} note(s) link here in total.`);
+    }
+    return lines.join('\n');
+  }
+
+  lines.push(`${entity.counts.incoming} note(s) link here · it links to ${entity.counts.outgoing}`, '');
+
+  // Both sections are the default; `--incoming`/`--outgoing` narrow, they do not exclude.
+  const showIncoming = options.incoming || !options.outgoing;
+  const showOutgoing = options.outgoing || !options.incoming;
+
+  const renderGroup = (label: string, grouped: Record<string, EntityReference[]>) => {
+    const entries = Object.entries(grouped).filter(([, list]) => list.length > 0);
+    if (entries.length === 0) return;
+    // Largest groups first: the type with most references is usually the useful one.
+    entries.sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    for (const [type, refs] of entries) {
+      lines.push(`## ${label} — ${type} (${refs.length})`, '');
+      for (const ref of refs) {
+        lines.push(`- **${ref.title}** \`${ref.slug}\``);
+        for (const context of ref.contexts) lines.push(`  - ${context}`);
+      }
+      lines.push('');
+    }
+  };
+
+  if (showIncoming) renderGroup('Referenced by', entity.incoming);
+  if (showOutgoing) renderGroup('References', entity.outgoing);
+  return lines.join('\n').trimEnd();
+}
+
+/**
+ * Render a candidate pool as markdown, for callers that return text rather than printing.
+ *
+ * Every candidate carries its graph distance and its deterministic sentences, because the
+ * distance is the ordering signal and the sentences are what a judge actually reads. The
+ * note about judging is deliberately explicit: this function never decides anything.
+ */
+export function renderPoolMarkdown(pool: EntityPool): string {
+  const lines: string[] = [
+    `# Candidate pool around ${pool.anchor_title}`,
+    '',
+    `${pool.candidates.length} candidate(s) of ${pool.reachable} note(s) reachable by graph distance.`,
+    '',
+    'Nothing is judged here: this is the set a judge would decide on. Ordering is by graph',
+    'distance only, never by lexical overlap with a question.',
+  ];
+
+  if (pool.candidates.length === 0) {
+    lines.push('', 'Nothing is reachable from this note. There is no candidate set to judge.');
+    return lines.join('\n');
+  }
+
+  lines.push('');
+  for (const candidate of pool.candidates) {
+    lines.push(`## [${candidate.distance}] ${candidate.title} \`${candidate.slug}\``, '');
+    lines.push(`${candidate.type}`);
+    for (const sentence of candidate.sentences) lines.push(`- ${sentence}`);
+    lines.push('');
+  }
+  return lines.join('\n').trimEnd();
 }

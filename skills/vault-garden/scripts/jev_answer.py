@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Answer a question from a Granite pool: the graph narrows, Jev selects, code decides.
 
-Input comes from `granite pool <anchor> --json`, so the candidate set is chosen by
-deterministic code inside Granite rather than re-derived here. That separation matters:
+Input comes from the `granite_pool` MCP tool (Granite decides the candidate set
+inside `src/`), so the pool is not re-derived here. That separation matters:
 a first version walked the graph in Python and ordered the pool by lexical overlap with
 the question, which reintroduced the exact failure this exists to fix — the note holding
 the answer was one hop away and shared no vocabulary with the English question, so it was
@@ -23,7 +23,12 @@ separation: 1.38 when an answer exists, 0.21 when it does not.
 
 Usage
 -----
-    granite pool monka-care --limit 30 --json | python3 jev_answer.py "<question>"
+Call `granite_pool` over MCP, write its result to a file, then:
+
+    python3 jev_answer.py "<question>" --pool pool.json
+
+`granite_pool` is MCP-only: the retrieval primitives are not CLI commands, so an agent
+reaches them through the server like any other tool.
 
 Read-only. Nothing is written to the vault.
 """
@@ -122,10 +127,10 @@ def main(argv: list[str]) -> int:
     if not raw.strip():
         print(json.dumps({
             "status": "empty",
-            "hint": "pipe a pool in: granite pool <anchor> --json | python3 jev_answer.py \"<question>\"",
+            "hint": "pipe a pool in: call granite_pool over MCP, write the result to a file, then pass --pool, or pipe the JSON on stdin",
         }, indent=2))
         return 0
-    # A failed `granite pool` call returns {"success": false, "error": ...}. Reading it as
+    # A failed pool call returns {"success": false, "error": ...}. Reading it as
     # an empty pool reported "absent", so "the command broke" looked identical to "the
     # vault has no answer" -- the two must never be confusable. Every malformed shape is
     # checked before anything is read from it, including a top-level scalar or list, which
@@ -141,13 +146,13 @@ def main(argv: list[str]) -> int:
         return fail(f"pool input is not JSON: {exc.msg}")
 
     if not isinstance(payload, dict):
-        return fail(f"expected a JSON object from `granite pool --json`, got {type(payload).__name__}")
+        return fail(f"expected the JSON object `granite_pool` returns, got {type(payload).__name__}")
     if payload.get("success") is False:
-        return fail(payload.get("error") or "granite pool reported failure")
+        return fail(payload.get("error") or "the pool call reported failure")
 
     pool = payload.get("data", payload)
     if not isinstance(pool, dict) or not isinstance(pool.get("candidates"), list):
-        return fail("unrecognised pool payload; expected the output of `granite pool --json`")
+        return fail("unrecognised pool payload; expected the output of the `granite_pool` tool")
     candidates = pool["candidates"]
     if not candidates:
         print(json.dumps({

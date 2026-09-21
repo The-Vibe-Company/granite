@@ -194,11 +194,11 @@ distinct stages, and the middle one is the whole point of the split:
 Median rank of the target by graph distance is around 60, with a tail out to 474. So the
 honest claim is narrow and worth stating precisely: **the graph turns "the note is not in
 the result set" into "the note is in the set, at an unknown rank", and a model has to
-supply the rank.** That is what `granite pool` plus a judge is for, and it is why the
+supply the rank.** That is what the `granite_pool` tool plus a judge is for, and it is why the
 division of labour below is not arbitrary.
 
 This also confirms, with numbers, the rule already recorded under *What not to build*: a
-graph-traversal API is not a primary retrieval mode. Using `granite about`/`pool` as a
+graph-traversal API is not a primary retrieval mode. Using `granite_about`/`granite_pool` as a
 *semantic* search replacement would land at roughly the lexical baseline, because both
 answer the recall question and neither answers the selection question.
 
@@ -217,7 +217,7 @@ The split that keeps the product boundary intact:
 
 | Half | Where | What it does |
 | --- | --- | --- |
-| `granite pool <anchor>` | **Granite, `src/`** | Emits the bounded candidate set a judge decides on: notes reachable by graph distance, each with deterministic candidate sentences. No network. |
+| `granite_pool` (MCP) | **Granite, `src/`** | Emits the bounded candidate set a judge decides on: notes reachable by graph distance, each with deterministic candidate sentences. No network. |
 | `jev_answer.py` | **Companion skill** | Asks Jev which candidate answers the question, reads the absence verdict from the ranking, applies thresholds. |
 
 ### Order the pool by distance, never by lexical overlap

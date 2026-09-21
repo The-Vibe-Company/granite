@@ -9,7 +9,7 @@ frontmatter strip that could only delete real content, so the candidate set it j
 not the set the product produces.
 
 This compares against the **product**, not against another transcription of it: it runs
-`granite pool --json` and checks that the prototype's extractor reproduces exactly the
+the `granite_pool` tool returns and checks that the prototype's extractor reproduces exactly the
 sentences the CLI emitted, for the same notes at the same limit. If the shipped extractor
 changes and the copy does not, this fails.
 

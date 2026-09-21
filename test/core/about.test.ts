@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { aboutEntity, candidateSentences, entityPool } from '../../src/core/about.js';
+import {
+  aboutEntity,
+  candidateSentences,
+  entityPool,
+  filterAbout,
+  renderAboutMarkdown,
+  renderPoolMarkdown,
+} from '../../src/core/about.js';
 
 /**
  * Minimal stand-in for the index: `aboutEntity` is a read of the graph, so the test
@@ -222,3 +229,90 @@ describe('pool ordering and bounds', () => {
 // The `about` flag combinations are covered against the real `aboutCommand` in
 // `test/commands/about.test.ts`. A local `select()` helper used to live here and
 // re-implemented the guards, which only proved that a copy of the logic worked.
+
+describe('filterAbout and the shared markdown renderers', () => {
+  // These two functions are what the MCP tools return, so they are the contract an agent
+  // reads. They live in core rather than in the transport so both surfaces share one
+  // implementation of the filtering — duplicating it is how the counts drifted from the
+  // groups they described in the first place.
+
+  it('keeps every group when no types are requested', () => {
+    const d = db();
+    const entity = filterAbout(aboutEntity(d, 'monka-care')!);
+    expect(Object.keys(entity.incoming).sort()).toEqual(['meeting', 'person', 'synthesis']);
+    expect(entity.counts).toEqual({ incoming: 3, outgoing: 1 });
+    expect(entity.filtered_by).toBeUndefined();
+    d.close();
+  });
+
+  it('recomputes the counts from the filtered groups', () => {
+    const d = db();
+    const entity = filterAbout(aboutEntity(d, 'monka-care')!, ['meeting']);
+    expect(Object.keys(entity.incoming)).toEqual(['meeting']);
+    expect(entity.counts.incoming).toBe(1);
+    // The unfiltered total is kept, because "nothing of the type you asked for" is not
+    // "nothing points at this note".
+    expect(entity.unfiltered_counts).toEqual({ incoming: 3, outgoing: 1 });
+    d.close();
+  });
+
+  it('renders the groups with their type and the context of each reference', () => {
+    const d = db();
+    const markdown = renderAboutMarkdown(filterAbout(aboutEntity(d, 'monka-care')!), {});
+    expect(markdown).toContain('# Monka.care');
+    expect(markdown).toContain('## Referenced by — meeting (1)');
+    expect(markdown).toContain('## References — person (1)');
+    expect(markdown).toContain('Kickoff');
+    d.close();
+  });
+
+  it('renders one direction when asked for one', () => {
+    const d = db();
+    const entity = filterAbout(aboutEntity(d, 'monka-care')!);
+    const incoming = renderAboutMarkdown(entity, { incoming: true });
+    expect(incoming).toContain('## Referenced by');
+    expect(incoming).not.toContain('## References');
+
+    const outgoing = renderAboutMarkdown(entity, { outgoing: true });
+    expect(outgoing).not.toContain('## Referenced by');
+    expect(outgoing).toContain('## References');
+    d.close();
+  });
+
+  it('says an entity is unreferenced only when it actually is', () => {
+    const d = db();
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)')
+      .run('lonely-a', 'Lonely', 'note', 'active', 'Nothing points here.');
+    const markdown = renderAboutMarkdown(filterAbout(aboutEntity(d, 'lonely-a')!), {});
+    expect(markdown).toContain('Nothing links to this note');
+    d.close();
+  });
+
+  it('distinguishes an empty filter from an unreferenced entity', () => {
+    const d = db();
+    const entity = filterAbout(aboutEntity(d, 'monka-care')!, ['source']);
+    const markdown = renderAboutMarkdown(entity, {});
+    expect(markdown).not.toContain('Nothing links to this note');
+    expect(markdown).toContain('No source note references this one');
+    expect(markdown).toContain('3 note(s) link here in total');
+    d.close();
+  });
+
+  it('renders a pool with distance, sentences, and the judging boundary', () => {
+    const d = db();
+    const markdown = renderPoolMarkdown(entityPool(d, 'monka-care', { limit: 3 })!);
+    expect(markdown).toContain('# Candidate pool around Monka.care');
+    expect(markdown).toContain('## [1]');
+    expect(markdown).toContain('Nothing is judged here');
+    d.close();
+  });
+
+  it('renders an empty pool as a fact rather than as an empty list', () => {
+    const d = db();
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)')
+      .run('lonely-a', 'Lonely', 'note', 'active', 'Nothing points here.');
+    const markdown = renderPoolMarkdown(entityPool(d, 'lonely-a', {})!);
+    expect(markdown).toContain('There is no candidate set to judge');
+    d.close();
+  });
+});
