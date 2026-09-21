@@ -206,3 +206,19 @@ describe('pool ordering and bounds', () => {
     d.close();
   });
 });
+
+describe('about flags', () => {
+  it('renders both sections when neither flag is given, and when both are', () => {
+    // The guard combination `if (!outgoing)` / `if (!incoming)` suppressed both sections
+    // when both flags were passed, so the only way to see nothing was to ask for both.
+    // This asserts the selection logic the command uses.
+    const select = (incoming?: boolean, outgoing?: boolean) => ({
+      showIncoming: Boolean(incoming) || !outgoing,
+      showOutgoing: Boolean(outgoing) || !incoming,
+    });
+    expect(select()).toEqual({ showIncoming: true, showOutgoing: true });
+    expect(select(true, true)).toEqual({ showIncoming: true, showOutgoing: true });
+    expect(select(true, undefined)).toEqual({ showIncoming: true, showOutgoing: false });
+    expect(select(undefined, true)).toEqual({ showIncoming: false, showOutgoing: true });
+  });
+});

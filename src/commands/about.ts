@@ -68,8 +68,13 @@ export function aboutCommand(slug: string, options: AboutOptions): void {
     console.log(`${found.counts.incoming} note(s) link here · it links to ${found.counts.outgoing}`);
     console.log('');
 
-    if (!options.outgoing) renderGroup('Referenced by', payload.incoming);
-    if (!options.incoming) renderGroup('References', payload.outgoing);
+    // Asking for both sections is the default, not a request to render neither. The
+    // previous guards (`if (!outgoing)` / `if (!incoming)`) suppressed both when both
+    // flags were passed, so the only combination that showed nothing was "show both".
+    const showIncoming = options.incoming || !options.outgoing;
+    const showOutgoing = options.outgoing || !options.incoming;
+    if (showIncoming) renderGroup('Referenced by', payload.incoming);
+    if (showOutgoing) renderGroup('References', payload.outgoing);
   } finally {
     db.close();
   }

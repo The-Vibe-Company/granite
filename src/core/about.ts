@@ -156,8 +156,12 @@ export function candidateSentences(body: string, limit = 6): string[] {
       .replace(/\s{2,}/g, ' ')
       .replace(/^\s*[-*|\s]+/, '')
       .trim();
-    if (line.length >= 30 && line.length <= 400) out.push(line);
-    if (out.length >= limit) break;
+    if (line.length >= 30 && line.length <= 400) {
+      out.push(line);
+      // Check after pushing: the previous placement let one extra sentence through
+      // whenever the limit was reached mid-loop.
+      if (out.length >= limit) break;
+    }
   }
   return out;
 }
@@ -211,12 +215,13 @@ export function entityPool(
     frontier = next;
   }
 
-  const ordered = [...distance.entries()]
-    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit);
+  const ordered = [...distance.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 
   const candidates: PoolEntry[] = [];
   for (const [slug, hop] of ordered) {
+    // The limit is applied after the existence filter, so a dangling target does not
+    // consume one of the requested slots and the caller gets the number they asked for.
+    if (candidates.length >= limit) break;
     const row = db
       .prepare('SELECT title, type, body FROM notes WHERE slug = ?')
       .get(slug) as { title: string; type: string; body: string } | undefined;
