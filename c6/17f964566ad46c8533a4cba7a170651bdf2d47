@@ -1,0 +1,28 @@
+skills/vault-garden/references/jev-ingestion.md
+  h_ecee222750141d 197,201,220
+skills/vault-garden/scripts/jev_answer.py
+  h_ecee222750141d 4-5,26-31,130,133,149,151,155
+skills/vault-garden/scripts/test_jev_ask.py
+  h_ecee222750141d 12
+src/core/about.ts
+  h_ecee222750141d 143-183,295-382
+src/mcp/runtime.ts
+  h_ecee222750141d 17-23,499-530
+src/mcp/server.ts
+  h_ecee222750141d 26,101-102,141,484-515
+test/core/about.test.ts
+  h_ecee222750141d 3-10,232-318
+test/mcp/server-graph-access.test.ts
+  h_ecee222750141d 4-11,14,16-18,20-24,26-28,31-73,76-79,82-87,90-97,100-109,112-121,124-132,134-140,142-146,149-156,159-167,170-185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c617f964566ad46c8533a4cba7a170651bdf2d47",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
