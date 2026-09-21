@@ -604,7 +604,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       question: z.string().describe('The question to answer from the vault.'),
       anchor: z.string().describe('Slug of the note to grow the candidate set around — an entity, a client, a project.'),
       depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
-      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number; each candidate adds one score and one evidence question to a single batched request, so a larger pool costs little more time.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number. One batched request carries them all: when the measured request would exceed the ceiling, every candidate keeps a shorter excerpt rather than a candidate being dropped, and a titles-only pool, which has no excerpt to shorten, is trimmed by count. `request_trim` reports exactly which of the two happened.'),
       sentences: z.number().int().min(0).optional().describe('Candidate sentences per note. Defaults to 6 here: judging needs the text, which is why this tool never takes the titles-only default that granite_pool uses for a large neighbourhood.'),
     },
     outputSchema: {
@@ -630,6 +630,11 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         shown: z.number().int(),
       })).optional().describe('Per-hop reachable/shown counts. Read this before reporting absence: a verdict drawn from a truncated pool is a statement about the limit, not about the vault.'),
       beyond_depth: z.number().int().optional().describe('Real notes one hop beyond the walked depth. Non-zero means the walk stopped short, so an absence verdict is about the boundary rather than the vault.'),
+      request_trim: z.object({
+        candidates_in_pool: z.number().int(),
+        candidates_sent: z.number().int(),
+        excerpts_shortened: z.boolean(),
+      }).optional().describe('Present only when the measured request ceiling shaped this judgment. excerpts_shortened means detail was traded, not notes; candidates_sent below candidates_in_pool means notes were left out. `ranked` always lists exactly what was judged.'),
       reason: z.string().optional(),
     },
     annotations: readOnlyAnnotations,
@@ -665,6 +670,20 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         `Judged ${(verdict.ranked ?? []).length} of ${verdict.reachable} reachable note(s); `
         + `not judged: ${dropped.map(b => `${b.reachable - b.shown} at distance ${b.distance}`).join(', ')}.`,
         'Treat "absent" as provisional while anything is unjudged.',
+        '',
+      );
+    }
+    const trim = verdict.request_trim;
+    if (trim) {
+      // The pool was asked for more than one request can carry. Say which of the two things
+      // happened, because only one of them loses notes; the other only loses detail.
+      const did = trim.candidates_sent < trim.candidates_in_pool
+        ? `${trim.candidates_sent} of the pool's ${trim.candidates_in_pool} candidate(s) were sent`
+        : `all ${trim.candidates_sent} candidate(s) were sent`;
+      lines.push(
+        `The measured request ceiling shaped this judgment: ${did}`
+        + `${trim.excerpts_shortened ? ', each with a shorter excerpt than the one requested' : ''}. `
+        + 'The ranking below lists exactly what was judged.',
         '',
       );
     }

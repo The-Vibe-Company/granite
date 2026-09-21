@@ -465,9 +465,12 @@ export function entityPool(
     by_distance: byDistance,
     beyond_depth: beyondDepth.size,
     sentences_omitted: sentencesOmitted,
-    // Set from what was actually returned: comparing the two limits up front reported a trim
-    // even when the pool was smaller than either bound and nothing was dropped.
-    trimmed_by_transport: candidates.length >= effectiveLimit && effectiveLimit < limit,
+    // Set from what was actually returned AND from what was actually available. Comparing the two
+    // limits up front reported a trim even when the pool was smaller than either bound; and a pool
+    // holding exactly as many notes as the ceiling allows was bounded by the vault, not by the
+    // transport, so telling that caller to ask with `sentences: 0` for more is an over-claim.
+    trimmed_by_transport:
+      candidates.length >= effectiveLimit && effectiveLimit < limit && reachableNotes > candidates.length,
   };
 }
 
