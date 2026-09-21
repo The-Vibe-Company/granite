@@ -371,12 +371,12 @@ export function entityPool(
   // A leaf with one neighbour defaulted to a one-candidate pool while dozens were reachable;
   // a hub returned 141 candidates and ~30k tokens.
   //
-  // 100, not 60. Measured on the real vault: the note that answers "what does the client pay
-  // for managed hosting?" sits at rank **54** of 87 direct neighbours, so a cap of 60 left six
-  // candidates of margin between citing the figure and returning `answered` with **zero
-  // evidence** — a confident verdict with nothing behind it. Measured across limits 20/30/40/
-  // 60/87/100: no citation below 60, the figure cited at 60 and above.
-  const DEFAULT_NEAREST = 100;
+  // 60, decided by the byte budget rather than by a round number. The answering note measures at
+  // rank **54** of 87 direct neighbours, and the serialized request with sentences allows ~60
+  // candidates under the measured ceiling, so 60 is the largest default that both reaches the
+  // answer and can actually be sent. Measured across limits 20/30/40/60/87/100: the figure is
+  // cited at 60 and above and not below — so this sits exactly on the boundary that works.
+  const DEFAULT_NEAREST = 60;
   const MAX_CANDIDATES = 255;
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_NEAREST, MAX_CANDIDATES));
 
@@ -408,7 +408,12 @@ export function entityPool(
   // These are transport limits, stated rather than hidden. A caller that needs sentences on a
   // hub must ask per candidate, because one batched request cannot carry that many.
   const CANDIDATES_THAT_FIT_WITH_SENTENCES = 30;
-  const REQUEST_CEILING_CANDIDATES = 120;
+  // Measured, not inferred: a candidate with six sentences costs **~2.05 KB** in the serialized
+  // request, so 120 candidates is 248 KB — far above the ~142 KB the API rejects, and the byte
+  // guard added in `judge.ts` refused it. 60 candidates is ~122 KB, which fits with headroom and
+  // still reaches the answering note measured at rank 54. The earlier estimate of ~1.03 KB per
+  // candidate was wrong by a factor of two and made this ceiling three times too high.
+  const REQUEST_CEILING_CANDIDATES = 60;
   const sentenceCount = options.sentences
     ?? (deliveredCount > CANDIDATES_THAT_FIT_WITH_SENTENCES ? 0 : 6);
   const sentencesOmitted = sentenceCount === 0 && options.sentences === undefined;

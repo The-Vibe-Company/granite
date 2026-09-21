@@ -414,12 +414,13 @@ describe('the default pool is bounded by what it costs, not by a round number', 
     // the default floor is 100, so that note is comfortably inside it.
     const d = big();
     const pool = entityPool(d, 'monka-care', {})!;
-    // The fixture has 63 reachable neighbours, so the pool cannot exceed that — the point is
-    // that the floor is not 30 and every neighbour came back, which the next assertion pins.
-    expect(pool.candidates.length).toBeGreaterThan(30);
+    // The fixture has 63 direct neighbours and the default is 60, decided by the byte budget
+    // rather than by a round number: 60 candidates with sentences is ~122 KB, which fits under
+    // the ceiling, and the answering note measures at rank 54. So 60 is the largest default that
+    // both reaches the answer and can actually be sent.
+    expect(pool.candidates.length).toBe(60);
     const nearest = pool.by_distance.find(b => b.distance === 1)!;
-    // The fixture has 63 direct neighbours; the default floor is 100, so all 63 come back.
-    expect(nearest.shown).toBe(63);
+    expect(nearest.shown).toBe(60);
     expect(nearest.reachable).toBe(63);
     d.close();
   });
@@ -633,7 +634,7 @@ describe('the transport ceiling belongs to the branch that carries sentences', (
     // limit never reaches the ceiling at all and would prove nothing.
     const d = many(200);
     const withSentences = entityPool(d, 'hub', { limit: 200, sentences: 6 });
-    expect(withSentences!.candidates.length).toBe(120);
+    expect(withSentences!.candidates.length).toBe(60);
     expect(withSentences!.trimmed_by_transport).toBe(true);
     d.close();
   });
