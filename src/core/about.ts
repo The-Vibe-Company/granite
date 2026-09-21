@@ -131,6 +131,16 @@ export interface PoolEntry {
   sentences: string[];
 }
 
+/** How much of one hop's neighbourhood a pool actually returned. */
+export interface PoolDistanceSummary {
+  /** Graph hops from the anchor. */
+  distance: number;
+  /** Real notes at this distance, whether or not they were returned. */
+  reachable: number;
+  /** How many of them this pool returned. */
+  shown: number;
+}
+
 export interface EntityPool {
   anchor: string;
   anchor_title: string;
@@ -138,6 +148,11 @@ export interface EntityPool {
   reachable: number;
   /** Notes actually returned, nearest first. */
   candidates: PoolEntry[];
+  /**
+   * Per-hop reachable/shown counts, so a truncated pool says what it left out instead of
+   * implying the neighbourhood it returned is the whole neighbourhood.
+   */
+  by_distance: PoolDistanceSummary[];
 }
 
 /** An `AboutEntity` with its groups narrowed to the requested types. */
@@ -182,10 +197,45 @@ export function filterAbout(entity: AboutEntity, types?: string[]): FilteredAbou
 }
 
 /**
+ * A line that is metadata rather than prose: `sourceNotionId: ...`, `File: [...]`.
+ *
+ * Imported notes put these at the very top, so a first-N read spent its whole budget on
+ * them and never reached the body. Naming each field would be endless; the shape is what
+ * matters — a short key, a colon, a value — and prose rarely opens that way.
+ */
+const METADATA_LINE = /^\s{0,3}[\w-]{2,24}:\s*\S/;
+
+/** Every sentence in a body that could answer something, in document order. */
+function allCandidateSentences(body: string): string[] {
+  const text = (body ?? '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,6}\s.*$/gm, ' ');
+  const out: string[] = [];
+  for (const raw of text.split(/(?<=[.!?])\s+|\n+/)) {
+    const line = raw
+      .replace(/\*\*|__|`/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^\s*[-*|\s]+/, '')
+      .trim();
+    if (line.length >= 30 && line.length <= 400 && !METADATA_LINE.test(line)) {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+/**
  * Candidate sentences, chosen deterministically so recall stays in code.
  *
- * Frontmatter, fenced code and markdown markers are stripped: a citation marker or a
- * `sourceNotionId` line is not a sentence that can answer anything.
+ * Frontmatter, fenced code, markdown markers and metadata lines are stripped: a citation
+ * marker or a `sourceNotionId` line is not a sentence that can answer anything.
+ *
+ * Selection is a **coverage sample, not a prefix**. It walks the whole document at an
+ * even stride and includes the first and last candidate, because a structured note states
+ * its context first and its numbers last: on a real note the sentence carrying the price
+ * sat 16th of 21 qualifying lines, so a prefix of 6 could never contain it, and neither
+ * could one sentence per region when the regions are wider than the gap between the
+ * statements that matter.
  */
 export function candidateSentences(body: string, limit = 6): string[] {
   // No frontmatter strip here on purpose. `body` is gray-matter output, so frontmatter is
@@ -198,22 +248,18 @@ export function candidateSentences(body: string, limit = 6): string[] {
   // sentence before it can test the bound, so `limit: 0` — the documented "titles only"
   // mode — handed back a sentence anyway.
   if (limit <= 0) return [];
-  const text = (body ?? '')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/^#{1,6}\s.*$/gm, ' ');
-  const out: string[] = [];
-  for (const raw of text.split(/(?<=[.!?])\s+|\n+/)) {
-    const line = raw
-      .replace(/\*\*|__|`/g, '')
-      .replace(/\s{2,}/g, ' ')
-      .replace(/^\s*[-*|\s]+/, '')
-      .trim();
-    if (line.length >= 30 && line.length <= 400) {
-      out.push(line);
-      if (out.length >= limit) break;
-    }
+  const all = allCandidateSentences(body);
+  if (all.length <= limit) return all;
+  if (limit === 1) return [all[0]];
+
+  const picked: string[] = [];
+  for (let i = 0; i < limit; i++) {
+    // Even stride across the whole body, first and last included: the edges of a document
+    // carry the subject and the conclusion, and the middle carries the specifics.
+    const index = Math.round((i * (all.length - 1)) / (limit - 1));
+    picked.push(all[index]);
   }
-  return out;
+  return picked;
 }
 
 /**
@@ -267,7 +313,15 @@ export function entityPool(
 
   const ordered = [...distance.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 
+  // Prepared once: the per-hop counts and the candidate loop both ask this question, and
+  // a pool around a hub can ask it several hundred times.
+  const noteExists = db.prepare('SELECT 1 FROM notes WHERE slug = ?');
+
   const candidates: PoolEntry[] = [];
+  const shownByDistance = new Map<number, number>();
+  const seenByDistance = new Map<number, number>();
+  for (const [, hop] of ordered) seenByDistance.set(hop, (seenByDistance.get(hop) ?? 0) + 1);
+
   for (const [slug, hop] of ordered) {
     // The limit is applied after the existence filter, so a dangling target does not
     // consume one of the requested slots and the caller gets the number they asked for.
@@ -283,13 +337,28 @@ export function entityPool(
       distance: hop,
       sentences: candidateSentences(row.body, sentenceCount),
     });
+    shownByDistance.set(hop, (shownByDistance.get(hop) ?? 0) + 1);
   }
+
+  // What the caller did NOT get, per hop. A pool that returns 30 of 87 direct neighbours
+  // and says only "363 reachable" is quietly letting a caller believe it saw the whole
+  // neighbourhood — which is how a note holding the answer goes missing without anyone
+  // noticing. Counting the rest is a handful of existence queries, not a second walk.
+  const byDistance = [...seenByDistance.keys()].sort((a, b) => a - b).map(hop => {
+    let existing = 0;
+    for (const [s, h] of ordered) {
+      if (h !== hop) continue;
+      if (noteExists.get(s)) existing++;
+    }
+    return { distance: hop, reachable: existing, shown: shownByDistance.get(hop) ?? 0 };
+  });
 
   return {
     anchor,
     anchor_title: note.title ?? anchor,
     reachable: distance.size,
     candidates,
+    by_distance: byDistance,
   };
 }
 
@@ -365,6 +434,19 @@ export function renderPoolMarkdown(pool: EntityPool): string {
     'Nothing is judged here: this is the set a judge would decide on. Ordering is by graph',
     'distance only, never by lexical overlap with a question.',
   ];
+
+  // Say what was left out, per hop. A caller reading "30 candidates of 363 reachable" may
+  // still assume the nearest neighbourhood is complete; it usually is not, and a note
+  // holding the answer can be one of the ones dropped.
+  const truncated = pool.by_distance.filter(band => band.shown < band.reachable);
+  if (truncated.length > 0) {
+    lines.push('', 'Reachable vs returned, per graph distance:');
+    for (const band of pool.by_distance) {
+      const note = band.shown < band.reachable ? `  (${band.reachable - band.shown} not returned)` : '';
+      lines.push(`- distance ${band.distance}: ${band.shown} returned of ${band.reachable}${note}`);
+    }
+    lines.push('', 'If the note you expect is not here, it may be one of the ones not returned: raise `limit` or lower `depth` rather than concluding the vault does not have it.');
+  }
 
   if (pool.candidates.length === 0) {
     lines.push('', 'Nothing is reachable from this note. There is no candidate set to judge.');

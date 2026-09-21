@@ -558,6 +558,11 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         distance: z.number().int().describe('Graph hops from the anchor. 1 = directly linked.'),
         sentences: z.array(z.string()).describe('Deterministic candidate sentences; empty when titles only were requested.'),
       })),
+      by_distance: z.array(z.object({
+        distance: z.number().int(),
+        reachable: z.number().int().describe('Real notes at this distance, returned or not.'),
+        shown: z.number().int().describe('How many of them this pool returned.'),
+      })).describe('Per-hop reachable/shown counts. Use this to tell "the vault does not have it" from "the limit dropped it" before concluding anything is absent.'),
     },
     annotations: readOnlyAnnotations,
   }, async ({ anchor, depth, limit, sentences }) => {

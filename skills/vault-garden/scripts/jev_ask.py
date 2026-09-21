@@ -98,6 +98,27 @@ def sentences(body: str, limit: int) -> list[str]:
     """
     if limit <= 0:
         return []
+    all_candidates = _all_candidate_sentences(body)
+    if len(all_candidates) <= limit:
+        return all_candidates
+    if limit == 1:
+        return [all_candidates[0]]
+    # Coverage sample, not a prefix: even stride with first and last included. A structured
+    # note states its context first and its figures last, so a prefix of six never reaches
+    # the price on a real note where that sentence sits 16th of 21 qualifying lines.
+    return [
+        all_candidates[round(i * (len(all_candidates) - 1) / (limit - 1))]
+        for i in range(limit)
+    ]
+
+
+# A line that is metadata rather than prose: `sourceNotionId: ...`, `File: [...]`.
+# Imported notes put these at the top, so a first-N read spent its whole budget on them.
+_METADATA_LINE = re.compile(r"^\s{0,3}[\w-]{2,24}:\s*\S")
+
+
+def _all_candidate_sentences(body: str) -> list[str]:
+    """Every sentence in a body that could answer something, in document order."""
     text = re.sub(r"```[\s\S]*?```", " ", body)
     text = re.sub(r"^#{1,6}\s.*$", " ", text, flags=re.M)
     out: list[str] = []
@@ -105,10 +126,8 @@ def sentences(body: str, limit: int) -> list[str]:
         line = re.sub(r"\*\*|__|`", "", raw)
         line = re.sub(r"\s{2,}", " ", line)
         line = line.strip().lstrip("-*| ").strip()
-        if 30 <= len(line) <= 400:
+        if 30 <= len(line) <= 400 and not _METADATA_LINE.match(line):
             out.append(line)
-            if len(out) >= limit:
-                break
     return out
 
 

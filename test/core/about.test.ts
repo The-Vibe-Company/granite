@@ -316,3 +316,77 @@ describe('filterAbout and the shared markdown renderers', () => {
     d.close();
   });
 });
+
+describe('candidate sentence selection', () => {
+  // These pin a defect that made every judge unable to answer from an imported note: the
+  // six "sentences" were the first six lines that passed a length filter, which on real
+  // source notes are File:/sourceNotionId:/sourceNotionUrl: and two lines of preamble. The
+  // sentence carrying the figure sat 16th of 21 qualifying lines.
+
+  it('drops metadata lines rather than spending the budget on them', () => {
+    const body = [
+      '- File: [discussion-package.md](assets/discussion-package.md)',
+      'sourceNotionId: 357324e51ac2813cb372e77bad7dcb26',
+      'sourceNotionUrl: https://www.notion.so/357324e51ac2813cb372e77bad7dcb26',
+      'sourceDiscussionTitle: Migration Infrastructure et Conformité HDS Monka',
+      'Meeting du 5 mai 2026 entre Stan Girard, Étienne Ruby et Stan Bernard.',
+    ].join('\n');
+    const out = candidateSentences(body, 6);
+    expect(out.join(' ')).not.toContain('sourceNotionId');
+    expect(out.join(' ')).not.toContain('sourceNotionUrl');
+    expect(out.join(' ')).toContain('Meeting du 5 mai 2026');
+  });
+
+  it('reaches the end of a long body instead of returning its opening', () => {
+    // The regression: a prefix of 6 could never contain the 16th qualifying sentence, and
+    // a structured note puts its figures last.
+    const filler = Array.from({ length: 14 }, (_, i) =>
+      `Phrase de remplissage numéro ${i + 1} qui dépasse largement trente caractères.`);
+    const body = [...filler, 'Proposition d’infogérance HDS : 1 975 € HT / mois, soit 71 100 € HT.'].join('\n');
+    const out = candidateSentences(body, 6);
+    expect(out.some(sentence => sentence.includes('1 975'))).toBe(true);
+  });
+
+  it('always includes the first and last candidate when sampling', () => {
+    const body = Array.from({ length: 20 }, (_, i) =>
+      `Phrase numéro ${i + 1} suffisamment longue pour être retenue comme candidate.`).join('\n');
+    const out = candidateSentences(body, 4);
+    expect(out[0]).toContain('numéro 1 ');
+    expect(out[out.length - 1]).toContain('numéro 20');
+    expect(out).toHaveLength(4);
+  });
+
+  it('returns everything in document order when the body is short', () => {
+    const body = 'Première phrase assez longue pour compter dans le résultat.\nSeconde phrase assez longue pour compter aussi.';
+    expect(candidateSentences(body, 10)).toHaveLength(2);
+  });
+});
+
+describe('pool truncation reporting', () => {
+  it('says how many notes each distance has, not just the total', () => {
+    const d = db();
+    // Three direct neighbours exist; ask for one and the pool must admit the other two.
+    const pool = entityPool(d, 'monka-care', { limit: 1, sentences: 0 })!;
+    const band = pool.by_distance.find(b => b.distance === 1)!;
+    expect(band.shown).toBe(1);
+    expect(band.reachable).toBeGreaterThan(1);
+    expect(band.reachable - band.shown).toBeGreaterThan(0);
+    d.close();
+  });
+
+  it('says so in the rendered text, so a reader cannot miss it', () => {
+    const d = db();
+    const markdown = renderPoolMarkdown(entityPool(d, 'monka-care', { limit: 1, sentences: 0 })!);
+    expect(markdown).toContain('Reachable vs returned, per graph distance');
+    expect(markdown).toMatch(/\d+ not returned/);
+    expect(markdown).toContain('rather than concluding the vault does not have it');
+    d.close();
+  });
+
+  it('does not claim truncation when nothing was dropped', () => {
+    const d = db();
+    const markdown = renderPoolMarkdown(entityPool(d, 'monka-care', { limit: 500, sentences: 0 })!);
+    expect(markdown).not.toContain('not returned');
+    d.close();
+  });
+});

@@ -204,6 +204,21 @@ describe('MCP graph access tools', () => {
     expect(textOf(result)).toContain('# Candidate pool around');
   });
 
+  it('reports what the limit dropped, per graph distance', async () => {
+    const result = await client.callTool({
+      name: 'granite_pool',
+      arguments: { anchor: 'monka-care', limit: 1, sentences: 0 },
+    });
+    const pool = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+    const bands = pool?.by_distance as Array<{ distance: number; reachable: number; shown: number }>;
+    expect(Array.isArray(bands)).toBe(true);
+    const nearest = bands.find(band => band.distance === 1)!;
+    expect(nearest.shown).toBe(1);
+    expect(nearest.reachable).toBeGreaterThan(1);
+    // And the prose says it, so a model that only reads text cannot miss it either.
+    expect(textOf(result)).toMatch(/\d+ not returned/);
+  });
+
   it('returns the entity as structure with contexts and both counts', async () => {
     const result = await client.callTool({
       name: 'granite_about',
