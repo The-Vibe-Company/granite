@@ -98,15 +98,26 @@ export function writeCachedRouting(
 
 export function readCachedRouting(
   db: Database.Database,
-  args: { sourceSlug: string; hash: string; model: string },
+  args: { sourceSlug: string; hash: string; model: string; maxAgeDays?: number },
 ): CachedRouting | undefined {
-  try { ensureTable(db); } catch { return undefined; }
-  const row = db.prepare(`
-    SELECT verdict FROM judgment_cache
-    WHERE source_slug = ? AND source_hash = ? AND candidate = ? AND model = ?
-  `).get(args.sourceSlug, args.hash, ROUTING_ROW, args.model) as { verdict: string } | undefined;
-  if (!row) return undefined;
-  try { return JSON.parse(row.verdict) as CachedRouting; } catch { return undefined; }
+  try {
+    ensureTable(db);
+    const row = db.prepare(`
+      SELECT verdict, created_at FROM judgment_cache
+      WHERE source_slug = ? AND source_hash = ? AND candidate = ? AND model = ?
+    `).get(args.sourceSlug, args.hash, ROUTING_ROW, args.model) as
+      | { verdict: string; created_at: string }
+      | undefined;
+    if (!row) return undefined;
+    // The routing row was exempt from the age limit while link verdicts were not, so a tag the
+    // vault stopped using could be proposed indefinitely.
+    const maxAgeDays = args.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
+    const cutoff = new Date(Date.now() - maxAgeDays * 86_400_000).toISOString();
+    if (row.created_at < cutoff) return undefined;
+    return JSON.parse(row.verdict) as CachedRouting;
+  } catch {
+    return undefined;
+  }
 }
 
 export function readCachedJudgments(
@@ -144,9 +155,17 @@ export function readCachedJudgments(
   return out;
 }
 
+/**
+ * One call writes every verdict for a capture, in a single transaction.
+ *
+ * The hash is per entry because it covers the candidate's title. Writing per candidate instead
+ * turned one transaction into up to 24 on the synchronous capture path, where each blocked
+ * statement can burn the full busy timeout against a concurrent writer — a stall of up to two
+ * minutes on the daemon's event loop, for a cache.
+ */
 export function writeCachedJudgments(
   db: Database.Database,
-  args: { sourceSlug: string; hash: string; model: string; verdicts: CachedVerdict[] },
+  args: { sourceSlug: string; model: string; verdicts: Array<CachedVerdict & { hash: string }> },
 ): void {
   if (args.verdicts.length === 0) return;
   // Everything, including the `prepare`, is inside the guard: preparing a statement against a
@@ -160,9 +179,9 @@ export function writeCachedJudgments(
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     const now = new Date().toISOString();
-    const insertAll = db.transaction((rows: CachedVerdict[]) => {
+    const insertAll = db.transaction((rows: Array<CachedVerdict & { hash: string }>) => {
       for (const v of rows) {
-        stmt.run(args.sourceSlug, args.hash, v.candidate, args.model, '', v.probability, now);
+        stmt.run(args.sourceSlug, v.hash, v.candidate, args.model, '', v.probability, now);
       }
     });
     insertAll(args.verdicts);

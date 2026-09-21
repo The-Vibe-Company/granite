@@ -414,7 +414,9 @@ describe('the default pool is bounded by what it costs, not by a round number', 
     // the default floor is 100, so that note is comfortably inside it.
     const d = big();
     const pool = entityPool(d, 'monka-care', {})!;
-    expect(pool.candidates.length).toBeGreaterThanOrEqual(30);
+    // The fixture has 63 reachable neighbours, so the pool cannot exceed that — the point is
+    // that the floor is not 30 and every neighbour came back, which the next assertion pins.
+    expect(pool.candidates.length).toBeGreaterThan(30);
     const nearest = pool.by_distance.find(b => b.distance === 1)!;
     // The fixture has 63 direct neighbours; the default floor is 100, so all 63 come back.
     expect(nearest.shown).toBe(63);

@@ -39,6 +39,29 @@ export const DEFAULT_MODEL = 'jev-1.13.0';
 const TIMEOUT_MS = 60_000;
 
 /**
+ * The largest request body the API was measured to accept, in bytes.
+ *
+ * Measured: 100 candidates with sentences is 94-100 KB and accepted; 141 is 142 KB and
+ * rejected with HTTP 400. The pool trims candidate *counts* to stay under this, but a count is
+ * an inference — a corpus whose sentences sit near the 400-character cap carries ~2.4 KB per
+ * candidate against the ~1.03 KB measured average, so the same count can exceed the bound.
+ * This is the enforcement at the boundary the rejection actually happens at.
+ */
+export const MAX_REQUEST_BYTES = 130_000;
+
+export class RequestTooLargeError extends Error {
+  readonly code = 'request_too_large';
+  constructor(bytes: number) {
+    super(
+      `Refusing to send a ${Math.round(bytes / 1024)} KB request: the API rejects bodies above `
+      + `roughly ${Math.round(MAX_REQUEST_BYTES / 1024)} KB with HTTP 400. Send fewer candidates, `
+      + 'or fewer sentences per candidate.',
+    );
+    this.name = 'RequestTooLargeError';
+  }
+}
+
+/**
  * Relevance is a 0-3 Score. The cut sits between measured values: an answerable question
  * scored 1.38, a control verified absent scored 0.21. Re-measured later at 1.95/0.23 and
  * 1.49/0.27 across runs; the band between them is wide, which is why the thresholds sit
@@ -123,13 +146,18 @@ export async function postQuestions(
   state: unknown,
   questions: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  const body = JSON.stringify({ state, model: modelName, questions });
+  // Checked before the call, not inferred from a candidate count upstream.
+  if (Buffer.byteLength(body, 'utf8') > MAX_REQUEST_BYTES) {
+    throw new RequestTooLargeError(Buffer.byteLength(body, 'utf8'));
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state, model: modelName, questions }),
+      body,
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -435,7 +463,11 @@ export async function proposeLinks(
 
   const rawType = answers.note_type?.choice;
   // The fallback sentinel is not a note type, and returning it verbatim proposed `OTHER` as one.
-  const noteType = typeof rawType === 'string' && rawType !== OTHER_TYPE ? rawType : undefined;
+  // Both the plain sentinel and the de-collided variant are fallbacks, not types. Filtering
+  // only `OTHER` let `OTHER_OPTION` be proposed as a note type in a vault that declares OTHER.
+  const isFallbackType = typeof rawType === 'string'
+    && (rawType === OTHER_TYPE || rawType === `${OTHER_TYPE}_OPTION`);
+  const noteType = typeof rawType === 'string' && !isFallbackType ? rawType : undefined;
   const pickedTags = tagVocabulary.filter(tag => (answers[`tag::${tag}`]?.noul ?? 0) >= LINK_THRESHOLD);
 
   return {

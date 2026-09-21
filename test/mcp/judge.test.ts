@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import { entityPool } from '../../src/core/about.js';
-import { buildAnswerQuestions, buildState, evidenceSentence } from '../../src/mcp/judge.js';
+import { buildAnswerQuestions, buildState, evidenceSentence, postQuestions } from '../../src/mcp/judge.js';
 
 /**
  * The judge layer is the one place Granite calls a model, so its contract has two halves
@@ -182,5 +182,29 @@ describe('capture-time link proposals', () => {
     // A capture with no candidates must say "nothing was judged", not imply "no links exist".
     const empty = { note: 'x', proposed: [], rejected: [], not_judged: 0 };
     expect(empty.not_judged).toBe(0);
+  });
+});
+
+describe('the request byte ceiling is enforced where the rejection happens', () => {
+  it('refuses to send a body above the measured limit', async () => {
+    // The pool trims candidate COUNT to stay under the API's limit, but a count is an
+    // inference: sentences near the 400-character cap carry ~2.4 KB per candidate against the
+    // ~1.03 KB measured average, so the same count can exceed the bound. This is the real guard.
+    const huge = { blob: 'x'.repeat(200_000) };
+    await expect(
+      postQuestions('k', 'm', huge, { q: { type: 'noul', instructions: 'Does it?' } }),
+    ).rejects.toThrow(/Refusing to send/);
+  });
+
+  it('lets a body under the limit through to the network layer', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{"answers":{}}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    try {
+      await postQuestions('k', 'm', { small: true }, { q: { type: 'noul', instructions: 'Does it?' } });
+      expect(fetchSpy).toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

@@ -584,6 +584,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         reachable: z.number().int().describe('Real notes at this distance, returned or not.'),
         shown: z.number().int().describe('How many of them this pool returned.'),
       })).describe('Per-hop reachable/shown counts. Use this to tell "the vault does not have it" from "the limit dropped it" before concluding anything is absent.'),
+      trimmed_by_transport: z.boolean().optional().describe('True when the transport ceiling, not the requested limit, bounded this pool. Raising `limit` will not return more with sentences; ask with sentences: 0 to see the whole neighbourhood.'),
       sentences_omitted: z.boolean().optional().describe('True when this listing is titles only because the nearest band is large. Call again with sentences: 6 for the text a judge needs to cite.'),
       beyond_depth: z.number().int().describe('Real notes sitting one hop beyond the walked depth. Non-zero means this pool is a boundary, not the edge of what the vault holds: raise depth before concluding anything is absent.'),
     },

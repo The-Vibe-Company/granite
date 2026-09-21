@@ -416,7 +416,6 @@ export function entityPool(
   // carries them. Inverted (sentences -> 255), `granite_answer(limit: 141)` on a hub sends the
   // ~142 KB body the measurement above records as HTTP 400, and the judge throws with no answer.
   const effectiveLimit = Math.min(limit, sentenceCount > 0 ? REQUEST_CEILING_CANDIDATES : MAX_CANDIDATES);
-  const trimmedByTransport = effectiveLimit < limit;
 
   for (const [slug, hop] of ordered) {
     // The limit is applied after the existence filter, so a dangling target does not
@@ -461,7 +460,9 @@ export function entityPool(
     by_distance: byDistance,
     beyond_depth: beyondDepth.size,
     sentences_omitted: sentencesOmitted,
-    trimmed_by_transport: trimmedByTransport,
+    // Set from what was actually returned: comparing the two limits up front reported a trim
+    // even when the pool was smaller than either bound and nothing was dropped.
+    trimmed_by_transport: candidates.length >= effectiveLimit && effectiveLimit < limit,
   };
 }
 

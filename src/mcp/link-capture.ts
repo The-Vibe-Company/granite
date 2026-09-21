@@ -100,7 +100,10 @@ export async function proposeLinksAtCapture(
     // One hash per candidate: the title is part of both the state and the criteria, so a
     // renamed candidate must not re-use a verdict that names the old title.
     const hashFor = (candidateTitle: string) => sourceHash(note.title, note.body, candidateTitle);
-    const probeHash = hashFor(candidates[0].title);
+    // Routing depends on the note and the vocabulary, not on any candidate, so it is keyed on
+    // the note alone. Deriving it from `candidates[0].title` made it move whenever the first
+    // candidate changed — an incidental value deciding a cache key.
+    const noteHash = hashFor('');
 
     // Judgments about this exact wording that we already paid for. The key includes the body
     // hash, so an edited note is judged again rather than served a verdict about old text.
@@ -130,18 +133,19 @@ export async function proposeLinksAtCapture(
     if (missing.length > 0) {
       // Routing has no candidate, so it is keyed on the note's own hash.
       writeCachedRouting(db, {
-        sourceSlug: note.slug, hash: probeHash, model: modelName,
+        sourceSlug: note.slug, hash: noteHash, model: modelName,
         routing: { note_type: fresh.note_type, tags: fresh.tags },
       });
-      for (const verdict of [...fresh.proposed, ...fresh.rejected]) {
-        const candidate = candidates.find(c => c.slug === verdict.target);
-        writeCachedJudgments(db, {
-          sourceSlug: note.slug,
-          hash: hashFor(candidate?.title ?? ''),
-          model: modelName,
-          verdicts: [{ candidate: verdict.target, probability: verdict.link_probability }],
-        });
-      }
+      // One transaction for the whole capture, not one per candidate.
+      writeCachedJudgments(db, {
+        sourceSlug: note.slug,
+        model: modelName,
+        verdicts: [...fresh.proposed, ...fresh.rejected].map(verdict => ({
+          candidate: verdict.target,
+          probability: verdict.link_probability,
+          hash: hashFor(candidates.find(c => c.slug === verdict.target)?.title ?? ''),
+        })),
+      });
     }
 
     // Merge cache hits back in, so a caller cannot tell which came from where except by the
@@ -156,7 +160,7 @@ export async function proposeLinksAtCapture(
     const rejected = all.filter(v => v.link_probability < LINK_THRESHOLD);
 
     // A cache hit must return the whole judgment, not half of it.
-    const cachedRouting = readCachedRouting(db, { sourceSlug: note.slug, hash: probeHash, model: modelName });
+    const cachedRouting = readCachedRouting(db, { sourceSlug: note.slug, hash: noteHash, model: modelName });
 
     return {
       ...fresh,

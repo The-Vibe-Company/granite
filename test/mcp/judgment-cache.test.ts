@@ -23,8 +23,8 @@ describe('judgment cache', () => {
   it('round-trips a verdict', () => {
     const d = db();
     writeCachedJudgments(d, {
-      sourceSlug: 'a', hash: 'h1', model: 'm',
-      verdicts: [{ candidate: 'target', probability: 0.92 }],
+      sourceSlug: 'a', model: 'm',
+      verdicts: [{ candidate: 'target', probability: 0.92, hash: 'h1' }],
     });
     const back = readCachedJudgments(d, { sourceSlug: 'a', hash: 'h1', model: 'm', candidates: ['target'] });
     expect(back.get('target')).toBe(0.92);
@@ -36,8 +36,8 @@ describe('judgment cache', () => {
     // exists is the silent wrongness the whole layer is built to avoid.
     const d = db();
     writeCachedJudgments(d, {
-      sourceSlug: 'a', hash: sourceHash('T', 'the old wording'),
-      model: 'm', verdicts: [{ candidate: 'target', probability: 0.92 }],
+      sourceSlug: 'a', model: 'm',
+      verdicts: [{ candidate: 'target', probability: 0.92, hash: sourceHash('T', 'the old wording') }],
     });
     const changed = readCachedJudgments(d, {
       sourceSlug: 'a', hash: sourceHash('T', 'the new wording'),
@@ -51,8 +51,8 @@ describe('judgment cache', () => {
     // Thresholds are tuned per model version; a verdict from another one is not comparable.
     const d = db();
     writeCachedJudgments(d, {
-      sourceSlug: 'a', hash: 'h', model: 'jev-old',
-      verdicts: [{ candidate: 'target', probability: 0.92 }],
+      sourceSlug: 'a', model: 'jev-old',
+      verdicts: [{ candidate: 'target', probability: 0.92, hash: 'h' }],
     });
     expect(readCachedJudgments(d, { sourceSlug: 'a', hash: 'h', model: 'jev-new', candidates: ['target'] }).size).toBe(0);
     d.close();
@@ -76,7 +76,7 @@ describe('judgment cache', () => {
     const d = db();
     d.exec('DROP TABLE notes; CREATE VIEW judgment_cache AS SELECT 1 AS x;');
     expect(() => writeCachedJudgments(d, {
-      sourceSlug: 'a', hash: 'h', model: 'm', verdicts: [{ candidate: 'c', probability: 1 }],
+      sourceSlug: 'a', model: 'm', verdicts: [{ candidate: 'c', probability: 1, hash: 'h' }],
     })).not.toThrow();
     expect(readCachedJudgments(d, { sourceSlug: 'a', hash: 'h', model: 'm', candidates: ['c'] }).size).toBe(0);
     d.close();
