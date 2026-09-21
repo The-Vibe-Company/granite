@@ -83,3 +83,52 @@ add already-linked neighbours to the state as reference: measured recall fell fr
   effect; Generative Agents never ablated it.
 - **A graph-traversal API as the primary retrieval mode.** Graph traversal buys multi-hop
   reasoning, not basic retrieval.
+
+## Retrieval: what was measured, and the split that came out of it
+
+`granite search` finds the note that answers a question only **13%** of the time when the
+question is asked in a different language than the note was written in (`2/15` on a real
+vault), and it failed even on `migration`, a word identical in both languages that appears
+in 43 notes. The graph is language-independent, so it supplies recall and a model supplies
+the selection.
+
+The split that keeps the product boundary intact:
+
+| Half | Where | What it does |
+| --- | --- | --- |
+| `granite pool <anchor>` | **Granite, `src/`** | Emits the bounded candidate set a judge decides on: notes reachable by graph distance, each with deterministic candidate sentences. No network. |
+| `jev_answer.py` | **Companion skill** | Asks Jev which candidate answers the question, reads the absence verdict from the ranking, applies thresholds. |
+
+### Order the pool by distance, never by lexical overlap
+
+The first prototype walked the graph in Python and ordered the pool by overlap with the
+question's words. That reintroduced the exact failure it was meant to fix: the note holding
+the answer was one hop away and shared no vocabulary with the English question, so it was
+pushed out of the pool and the answer reported absent. Distance is the signal; vocabulary
+is the thing that is missing.
+
+### Read absence from the ranking, not from an absolute question
+
+An absolute "does the pool contain an answer?" Noul gave a false negative on the case whose
+answer sat at rank 3. The ranking separates where the absolute judgment does not:
+
+| | pool Noul | top relevance |
+| --- | --- | --- |
+| answerable question, answer in pool | 0.25 | **1.95** |
+| control verified absent | 0.04 | **0.23** |
+
+`ANSWERED_AT = 1.0`, `ABSENT_BELOW = 0.5`, both between the measured values. This is the
+same pattern as everywhere else in this layer: Jev ranks well *within* a set and is
+unreliable at absolute judgments.
+
+### The limitation that remains
+
+Recall is solved; **precision at rank 1 is not**. On an English question asking what the
+client pays for managed hosting, the note that literally states the figure ranks third,
+below two notes that discuss the topic. On a French single-fact version the top-ranked note
+quotes a real cost figure — but the wrong party's cost. The model answers with a plausible,
+genuinely-cited sentence, which is worse than an obvious miss because it looks right.
+
+Raising `ANSWERED_AT` would not fix this: the top-ranked note is genuinely relevant, just
+not the answer. What is missing is a judgment of *which party or subject* a figure belongs
+to, asked per candidate rather than asking for topical relevance.
