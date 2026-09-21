@@ -1,0 +1,22 @@
+src/core/index-db.ts
+  h_ecee222750141d 7,369-374,398,402-408
+src/core/resolve.ts
+  h_ecee222750141d 2,42-49
+src/core/wikilinks.ts
+  h_ecee222750141d 1,36-41
+test/core/doctor.test.ts
+  h_ecee222750141d 99-126
+test/core/wikilinks.test.ts
+  h_ecee222750141d 97-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "10da54fcfa8692c77290897d5fd3db441ea67cac",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
