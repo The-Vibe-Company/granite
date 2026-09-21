@@ -1,0 +1,16 @@
+src/mcp/link-capture.ts
+  h_ecee222750141d 38-41,43-44,46-49,62,65-72
+test/mcp/link-capture.test.ts
+  h_ecee222750141d 5,55-74,76-88,90-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "64e89e8d120be575d9ebfba8af12e1539e3a6eef",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
