@@ -14,6 +14,8 @@ import {
   type GardenAdjudicationReasonCode,
 } from '../core/garden-adjudications.js';
 import { extractDocument as extractDocumentFromFile, type ExtractDocumentResult } from '../core/extract-document.js';
+import type { LinkProposalResult } from './judge.js';
+import { proposeLinksAtCapture } from './link-capture.js';
 import {
   aboutEntity as readAboutEntity,
   entityPool as readEntityPool,
@@ -280,6 +282,14 @@ export interface NoteMutationResult {
   note: NoteDetails;
   recommendations: NoteRecommendations;
   validation?: NoteValidationResult;
+  /**
+   * Links Jev thinks this note refers to, judged at capture. Proposed, never written: the
+   * measured precision on this shape is three of four, and a wrong wikilink is silent.
+   *
+   * A promise, so the write itself stays synchronous: awaiting it is how a caller surfaces
+   * the suggestions, and never awaiting it costs nothing but the suggestions.
+   */
+  proposed_links?: Promise<LinkProposalResult | undefined>;
 }
 
 export interface ImportedDocumentAsset {
@@ -940,7 +950,42 @@ export class GraniteMcpRuntime {
       this.applyMutations(created.filepath, metadataMutations);
     }
 
-    return this.afterWrite(created.slug, true);
+    const result = this.afterWrite(created.slug, true);
+    // Judged at capture because linking as a periodic pass never happens for the notes that
+    // need it. The note is already on disk: proposal failure degrades the response, never
+    // the write, so a TypeSafe outage cannot lose a capture.
+    return { ...result, proposed_links: this.proposeLinksFor(created.slug) };
+  }
+
+  /**
+   * Ask Jev which existing notes this one refers to, at capture. See `link-capture.ts`.
+   *
+   * Never rejects. A caller that ignores the promise must not produce an unhandled rejection,
+   * and the capture has already succeeded — a failed judgment is a missing suggestion, not a
+   * failed write.
+   */
+  private proposeLinksFor(slug: string): Promise<LinkProposalResult | undefined> {
+    return Promise.resolve()
+      .then(() => {
+        const note = this.getNote(slug);
+        return proposeLinksAtCapture(this.db, {
+          slug: note.slug,
+          // `NoteDetails` carries the title under frontmatter, not at the root. Reading the
+          // wrong path threw, and the catch below turned it into a silent "nothing proposed".
+          title: String(note.frontmatter?.title ?? note.slug),
+          body: note.body ?? '',
+        });
+      })
+      .catch((error: unknown) => {
+        // Never silent. A judgment that fails leaves the capture intact, but swallowing the
+        // reason made a wrong field path look like "nothing was proposed" for three debugging
+        // rounds — so the cause goes to stderr, where the daemon log already collects it.
+        console.error(
+          `granite: capture-time link judgment failed for ${slug}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+        return undefined;
+      });
   }
 
   captureNote(input: CaptureNoteInput): NoteMutationResult {

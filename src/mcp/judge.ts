@@ -6,12 +6,29 @@
  * probability over a set Granite already chose. It never decides *what* to look at, never
  * writes prose, and never runs a loop. See the Product Boundaries section of CLAUDE.md.
  *
- * It is opt-in and fails closed. Without `TYPESAFE_API_KEY` every function here reports
- * itself unavailable and the rest of Granite is unaffected.
+ * **Jev is required, not optional.** `TYPESAFE_API_KEY` must be set: the MCP server and the
+ * CLI both refuse to start without it, and every entry point that needs a judgment throws a
+ * named error rather than degrading. Granite does less without it on purpose — a silently
+ * degraded semantic layer produces answers that look right and are not.
  */
 import type { EntityPool, PoolDistanceSummary } from '../core/about.js';
 
 export const API_URL = 'https://api.typesafe.ai/v1/systemone';
+
+/**
+ * Raised whenever a required credential or judgment is missing. Named so callers and tests
+ * can distinguish "Jev is not configured" from "Jev refused", which need different fixes.
+ */
+export class JevUnavailableError extends Error {
+  readonly code = 'jev_unavailable';
+  constructor(detail = 'TYPESAFE_API_KEY is not set') {
+    super(
+      `Jev is required and ${detail}. Set TYPESAFE_API_KEY to a TypeSafe key `
+      + '(https://console.typesafe.ai). Granite does not run its semantic layer without it.',
+    );
+    this.name = 'JevUnavailableError';
+  }
+}
 
 /**
  * Pin a versioned model. Alias names drift when TypeSafe ships a release, and a threshold
@@ -49,7 +66,7 @@ export interface JudgeAnswer {
 }
 
 export interface AnswerVerdict {
-  status: 'ok' | 'unavailable' | 'error';
+  status: 'ok' | 'error';
   question: string;
   anchor?: string;
   model?: string;
@@ -67,9 +84,26 @@ export interface AnswerVerdict {
   reason?: string;
 }
 
+/** The configured key, or undefined. Startup checks use this; judgments use `requireApiKey`. */
 export function apiKey(): string | undefined {
   const key = process.env.TYPESAFE_API_KEY?.trim();
   return key ? key : undefined;
+}
+
+/** The configured key, or a named error. Every judgment path goes through this. */
+export function requireApiKey(): string {
+  const key = apiKey();
+  if (!key) throw new JevUnavailableError();
+  return key;
+}
+
+/**
+ * Throw unless Jev is configured. Called once at MCP-server and CLI startup so a missing key
+ * fails immediately and loudly, rather than at the first judgment — which, on the capture
+ * path, would be after a note had already been written.
+ */
+export function assertJevConfigured(): void {
+  if (!apiKey()) throw new JevUnavailableError();
 }
 
 export function model(): string {
@@ -268,4 +302,91 @@ export async function judgePool(
     by_distance: pool.by_distance,
     beyond_depth: pool.beyond_depth,
   };
+}
+
+/** Above this `noul` probability a capture-time link is proposed. Controls read 0.99/0.01. */
+export const LINK_THRESHOLD = 0.5;
+
+export interface LinkProposal {
+  target: string;
+  target_title: string;
+  /** `noul` probability that the note's own wording refers to this target. */
+  link_probability: number;
+}
+
+export interface LinkProposalResult {
+  note: string;
+  proposed: LinkProposal[];
+  rejected: LinkProposal[];
+  /** Candidates the limit left unjudged, so a caller does not read silence as "no link". */
+  not_judged: number;
+}
+
+/**
+ * Which of these notes does the new note actually refer to?
+ *
+ * Called at capture, because linking as a periodic pass means it never happens for the notes
+ * that need it: measured on a real vault, 106 notes had no incoming link and 65 of them were
+ * source notes. Judging at capture is where the connection is still obvious.
+ *
+ * Multi-label is **several `noul`s, not one multi-select `choice`**: a `choice` is a closed
+ * set with a fallback, and "which of these, possibly several, possibly none" is not that
+ * question. One request per note, all candidates inside it.
+ *
+ * This proposes and never writes. The measured precision does not support writing: on the
+ * same shape, 47 of 77 proposals pointed at a word that appears in 348 of 761 notes, and a
+ * judge that was right about three of four links was confidently wrong about the fourth.
+ */
+export async function proposeLinks(
+  note: { slug: string; title: string; body: string },
+  candidates: Array<{ slug: string; title: string }>,
+  key: string,
+  modelName: string,
+): Promise<LinkProposalResult> {
+  if (candidates.length === 0) {
+    return { note: note.slug, proposed: [], rejected: [], not_judged: 0 };
+  }
+
+  const state = {
+    new_note: { id: note.slug, title: note.title, body: note.body.slice(0, 4000) },
+    existing_notes: candidates.map(candidate => ({
+      id: candidate.slug,
+      title: candidate.title,
+    })),
+  };
+
+  const questions: Record<string, unknown> = {};
+  for (const candidate of candidates) {
+    questions[`link::${candidate.slug}`] = {
+      type: 'noul',
+      instructions:
+        `Does new_note refer to existing_notes[id=${candidate.slug}] specifically, rather `
+        + 'than merely sharing a word with it?',
+      criteria: {
+        true: `The new note means ${candidate.title} itself.`,
+        false:
+          'The name is absent, or names a different organization, person or version; a shared '
+          + 'word is not a reference.',
+      },
+    };
+  }
+
+  const answers = (await postQuestions(key, modelName, state, questions))
+    .answers as Record<string, { noul?: number }> | undefined ?? {};
+
+  const proposed: LinkProposal[] = [];
+  const rejected: LinkProposal[] = [];
+  for (const candidate of candidates) {
+    const probability = answers[`link::${candidate.slug}`]?.noul;
+    const entry: LinkProposal = {
+      target: candidate.slug,
+      target_title: candidate.title,
+      link_probability: typeof probability === 'number' ? Math.round(probability * 100) / 100 : 0,
+    };
+    if (typeof probability === 'number' && probability >= LINK_THRESHOLD) proposed.push(entry);
+    else rejected.push(entry);
+  }
+  proposed.sort((a, b) => b.link_probability - a.link_probability);
+
+  return { note: note.slug, proposed, rejected, not_judged: 0 };
 }

@@ -24,12 +24,14 @@ import {
 } from '../../shared/mcp-markdown.js';
 import { GRANITE_VERSION } from '../version.js';
 import { renderAboutMarkdown, renderPoolMarkdown } from '../core/about.js';
+import type { LinkProposalResult } from './judge.js';
 import {
   ABSENT_BELOW,
   ANSWERED_AT,
-  apiKey as judgeApiKey,
+  assertJevConfigured,
   judgePool,
   model as judgeModel,
+  requireApiKey,
 } from './judge.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
@@ -166,6 +168,10 @@ export function createGraniteMcpServer(
   runtime: GraniteMcpRuntime,
   options: GraniteMcpServerOptions = {},
 ): McpServer {
+  // Jev is required, so the server refuses to exist without it. Failing here rather than at
+  // the first judgment matters on the capture path: a tool that writes a note before
+  // discovering it cannot judge it would leave a half-built note behind.
+  assertJevConfigured();
   const role = options.role ?? 'write';
   const server = new McpServer(
     {
@@ -416,7 +422,11 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         derived_from: args.derived_from,
         fields: args.fields,
       });
-      return toolResult(renderMutationResultMarkdown('Created', result.note, result.recommendations, result.validation));
+      const proposed = await result.proposed_links;
+      return toolResult(renderProposedLinks(
+        renderMutationResultMarkdown('Created', result.note, result.recommendations, result.validation),
+        proposed,
+      ));
     }
 
     if (!args.text) {
@@ -435,7 +445,11 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       derived_from: args.derived_from,
       fields: args.fields,
     });
-    return toolResult(renderMutationResultMarkdown('Captured', result.note, result.recommendations, result.validation));
+    const proposed = await result.proposed_links;
+    return toolResult(renderProposedLinks(
+      renderMutationResultMarkdown('Captured', result.note, result.recommendations, result.validation),
+      proposed,
+    ));
   });
 
   if (canWrite && canParseDocuments) server.registerTool('granite_import_document', {
@@ -584,7 +598,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
 
   server.registerTool('granite_answer', {
     title: 'Answer A Question From The Vault',
-    description: 'Answer a question from the vault: Granite bounds a candidate set around an anchor by graph distance, Jev (TypeSafe System One) selects which candidate answers it and which sentence carries the answer, and Granite applies the threshold. Use this when the question may not share wording with the notes — keyword search finds the answering note only 2 times in 15 when the question and the note are in different languages, while this path puts it in the candidate set 14 times in 15. Returns a verdict (answered / partial / absent), the ranked candidates with their relevance scores, and the cited sentence. Requires TYPESAFE_API_KEY; without it the tool reports itself unavailable and never silently degrades.',
+    description: 'Answer a question from the vault: Granite bounds a candidate set around an anchor by graph distance, Jev (TypeSafe System One) selects which candidate answers it and which sentence carries the answer, and Granite applies the threshold. Use this when the question may not share wording with the notes — keyword search finds the answering note only 2 times in 15 when the question and the note are in different languages, while this path puts it in the candidate set 14 times in 15. Returns a verdict (answered / partial / absent), the ranked candidates with their relevance scores, and the cited sentence. Requires TYPESAFE_API_KEY: without it Granite refuses to serve, because a semantic layer that silently degrades produces answers that look right and are not.',
     inputSchema: {
       question: z.string().describe('The question to answer from the vault.'),
       anchor: z.string().describe('Slug of the note to grow the candidate set around — an entity, a client, a project.'),
@@ -593,7 +607,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       sentences: z.number().int().min(0).optional().describe('Candidate sentences per note. Defaults to 6 here: judging needs the text, which is why this tool never takes the titles-only default that granite_pool uses for a large neighbourhood.'),
     },
     outputSchema: {
-      status: z.string().describe('ok, or unavailable when no API key is configured.'),
+      status: z.string().describe('ok, or error when Jev refused the request.'),
       question: z.string(),
       anchor: z.string().optional(),
       model: z.string().optional(),
@@ -619,27 +633,9 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     },
     annotations: readOnlyAnnotations,
   }, async ({ question, anchor, depth, limit, sentences }) => {
-    const key = judgeApiKey();
-    if (!key) {
-      // A declared outputSchema means structured content is mandatory: the SDK rejects a
-      // text-only result with an output-validation error, which would turn "Jev is not
-      // configured" into an opaque protocol failure. Fail closed *and* stay well-formed.
-      const unavailable = {
-        status: 'unavailable' as const,
-        question,
-        anchor,
-        reason: 'missing TYPESAFE_API_KEY',
-      };
-      return {
-        content: [{
-          type: 'text' as const,
-          text: 'Jev is not configured: set TYPESAFE_API_KEY to answer questions semantically.\n\n'
-            + 'Everything else in Granite works without it. `granite_pool` still returns the '
-            + 'deterministic candidate set for this anchor if you want to judge it yourself.',
-        }],
-        structuredContent: unavailable as unknown as Record<string, unknown>,
-      };
-    }
+    // Throws JevUnavailableError when the key is missing. The MCP SDK turns a throw into
+    // isError with the message, which is the honest report: there is no verdict to give.
+    const key = requireApiKey();
 
     const pool = runtime.buildPool(anchor, {
       depth,
@@ -1223,4 +1219,28 @@ function readBearerToken(header: string | undefined): string | null {
   if (!header) return null;
   const match = header.match(/^Bearer\s+(.+)$/i);
   return match ? match[1] : null;
+}
+
+/**
+ * Append the capture-time link proposals to a mutation report.
+ *
+ * They are proposals, so the wording says so. A caller that applies them blindly turns a
+ * three-in-four judgment into three-in-four wikilinks, and a wrong wikilink is silent.
+ */
+function renderProposedLinks(summary: string, proposed?: LinkProposalResult): string {
+  if (!proposed || proposed.proposed.length === 0) {
+    if (proposed && proposed.not_judged > 0) {
+      return `${summary}\n\nLink proposals: Jev could not judge ${proposed.not_judged} candidate(s); nothing was written.`;
+    }
+    return summary;
+  }
+  const lines = proposed.proposed.map(
+    link => `- [[${link.target}]] — ${link.target_title} (p=${link.link_probability})`,
+  );
+  return [
+    summary,
+    '',
+    `Proposed links (${proposed.proposed.length}) — review before applying, nothing is written:`,
+    ...lines,
+  ].join('\n');
 }

@@ -236,21 +236,18 @@ describe('MCP graph access tools', () => {
     expect(entity?.filtered_by).toEqual(['meeting']);
   });
 
-  it('fails closed on granite_answer when no API key is configured', async () => {
-    // The model call is opt-in. Without a key the tool must say so and the rest of Granite
-    // must be unaffected — never a silent degraded run, never a fabricated verdict.
+  it('refuses to serve at all when no API key is configured', async () => {
+    // Jev is required, so the server does not exist without it. Failing at construction
+    // rather than at the first judgment matters on the capture path: a tool that wrote a note
+    // before discovering it could not judge it would leave a half-built note behind.
     const previous = process.env.TYPESAFE_API_KEY;
     delete process.env.TYPESAFE_API_KEY;
     try {
-      const result = await client.callTool({
-        name: 'granite_answer',
-        arguments: { question: 'What does the client pay?', anchor: 'monka-care' },
-      });
-      const text = textOf(result);
-      expect(text).toContain('TYPESAFE_API_KEY');
-      expect(text).toContain('granite_pool');
-      const structured = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
-      expect(structured?.verdict).toBeUndefined();
+      expect(() => createGraniteMcpServer(runtime)).toThrow(/TYPESAFE_API_KEY/);
+      const error = (() => {
+        try { createGraniteMcpServer(runtime); return null; } catch (thrown) { return thrown as Error; }
+      })();
+      expect(error?.name).toBe('JevUnavailableError');
     } finally {
       if (previous !== undefined) process.env.TYPESAFE_API_KEY = previous;
     }
