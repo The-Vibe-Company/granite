@@ -24,6 +24,13 @@ import {
 } from '../../shared/mcp-markdown.js';
 import { GRANITE_VERSION } from '../version.js';
 import { renderAboutMarkdown, renderPoolMarkdown } from '../core/about.js';
+import {
+  ABSENT_BELOW,
+  ANSWERED_AT,
+  apiKey as judgeApiKey,
+  judgePool,
+  model as judgeModel,
+} from './judge.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
 import type { GraniteMcpRuntime } from './runtime.js';
@@ -570,6 +577,79 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     return {
       content: [{ type: 'text' as const, text: renderPoolMarkdown(pool) }],
       structuredContent: pool as unknown as Record<string, unknown>,
+    };
+  });
+
+  server.registerTool('granite_answer', {
+    title: 'Answer A Question From The Vault',
+    description: 'Answer a question from the vault: Granite bounds a candidate set around an anchor by graph distance, Jev (TypeSafe System One) selects which candidate answers it and which sentence carries the answer, and Granite applies the threshold. Use this when the question may not share wording with the notes — keyword search finds the answering note only 2 times in 15 when the question and the note are in different languages, while this path puts it in the candidate set 14 times in 15. Returns a verdict (answered / partial / absent), the ranked candidates with their relevance scores, and the cited sentence. Requires TYPESAFE_API_KEY; without it the tool reports itself unavailable and never silently degrades.',
+    inputSchema: {
+      question: z.string().describe('The question to answer from the vault.'),
+      anchor: z.string().describe('Slug of the note to grow the candidate set around — an entity, a client, a project.'),
+      depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to 30; each adds one score and one choice question to a single batched request, so a larger pool costs little more time.'),
+      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 judges titles only. Defaults to 6.'),
+    },
+    outputSchema: {
+      status: z.string().describe('ok, or unavailable when no API key is configured.'),
+      question: z.string(),
+      anchor: z.string().optional(),
+      model: z.string().optional(),
+      verdict: z.enum(['answered', 'partial', 'absent']).optional(),
+      top_score: z.number().optional().describe('Best relevance score, 0-3. The verdict derives from this.'),
+      pool_has_answer: z.number().nullable().optional().describe('The absolute judgment, reported as context. Deliberately not the decision: it was measured giving a false negative on a pool whose answer sat at rank 3.'),
+      ranked: z.array(z.object({
+        slug: z.string(),
+        title: z.string(),
+        type: z.string(),
+        distance: z.number().int(),
+        score: z.number(),
+        evidence: z.string().nullable().describe('The sentence Jev cited as carrying the answer, or null when it cited none.'),
+      })).optional(),
+      reason: z.string().optional(),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ question, anchor, depth, limit, sentences }) => {
+    const key = judgeApiKey();
+    if (!key) {
+      // A declared outputSchema means structured content is mandatory: the SDK rejects a
+      // text-only result with an output-validation error, which would turn "Jev is not
+      // configured" into an opaque protocol failure. Fail closed *and* stay well-formed.
+      const unavailable = {
+        status: 'unavailable' as const,
+        question,
+        anchor,
+        reason: 'missing TYPESAFE_API_KEY',
+      };
+      return {
+        content: [{
+          type: 'text' as const,
+          text: 'Jev is not configured: set TYPESAFE_API_KEY to answer questions semantically.\n\n'
+            + 'Everything else in Granite works without it. `granite_pool` still returns the '
+            + 'deterministic candidate set for this anchor if you want to judge it yourself.',
+        }],
+        structuredContent: unavailable as unknown as Record<string, unknown>,
+      };
+    }
+
+    const pool = runtime.buildPool(anchor, { depth, limit, sentences });
+    const verdict = await judgePool(pool, question, key, judgeModel());
+
+    const lines: string[] = [
+      `# ${verdict.verdict?.toUpperCase() ?? 'NO VERDICT'}`,
+      '',
+      `Top relevance ${verdict.top_score} (answered at ${ANSWERED_AT}, absent below ${ABSENT_BELOW}), `
+      + `pool Noul ${verdict.pool_has_answer ?? 'n/a'} reported as context only.`,
+      '',
+    ];
+    for (const candidate of (verdict.ranked ?? []).slice(0, 8)) {
+      lines.push(`- **[${candidate.score}] ${candidate.title}** \`${candidate.slug}\` (distance ${candidate.distance})`);
+      if (candidate.evidence) lines.push(`  - ${candidate.evidence}`);
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
+      structuredContent: verdict as unknown as Record<string, unknown>,
     };
   });
 

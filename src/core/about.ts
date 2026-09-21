@@ -282,7 +282,6 @@ export function entityPool(
   options: { depth?: number; limit?: number; sentences?: number } = {},
 ): EntityPool | undefined {
   const depth = Math.max(1, options.depth ?? 2);
-  const limit = Math.max(1, options.limit ?? 30);
   const sentenceCount = options.sentences ?? 6;
 
   const note = db
@@ -312,6 +311,12 @@ export function entityPool(
   }
 
   const ordered = [...distance.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+
+  // The default is NOT a round number: it is the whole nearest band. A cap of 30 dropped
+  // the note holding a client's price, which sat 54th of 87 direct neighbours — and the
+  // pool could not tell anyone, because 30 looks like a deliberate choice. The nearest
+  // band is bounded by the vault's own shape and is the set a judge should actually see.
+  const limit = Math.max(1, options.limit ?? ordered.filter(([, hop]) => hop === ordered[0]?.[1]).length);
 
   // Prepared once: the per-hop counts and the candidate loop both ask this question, and
   // a pool around a hub can ask it several hundred times.

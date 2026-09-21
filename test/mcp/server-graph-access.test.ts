@@ -236,6 +236,37 @@ describe('MCP graph access tools', () => {
     expect(entity?.filtered_by).toEqual(['meeting']);
   });
 
+  it('fails closed on granite_answer when no API key is configured', async () => {
+    // The model call is opt-in. Without a key the tool must say so and the rest of Granite
+    // must be unaffected — never a silent degraded run, never a fabricated verdict.
+    const previous = process.env.TYPESAFE_API_KEY;
+    delete process.env.TYPESAFE_API_KEY;
+    try {
+      const result = await client.callTool({
+        name: 'granite_answer',
+        arguments: { question: 'What does the client pay?', anchor: 'monka-care' },
+      });
+      const text = textOf(result);
+      expect(text).toContain('TYPESAFE_API_KEY');
+      expect(text).toContain('granite_pool');
+      const structured = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+      expect(structured?.verdict).toBeUndefined();
+    } finally {
+      if (previous !== undefined) process.env.TYPESAFE_API_KEY = previous;
+    }
+  });
+
+  it('exposes granite_answer with its input and output contract', async () => {
+    const tools = (await client.listTools()).tools;
+    const answer = tools.find(tool => tool.name === 'granite_answer');
+    expect(answer).toBeDefined();
+    expect(Object.keys((answer?.inputSchema as { properties?: object }).properties ?? {}).sort())
+      .toEqual(['anchor', 'depth', 'limit', 'question', 'sentences']);
+    const output = (answer?.outputSchema as { properties?: object }).properties ?? {};
+    expect(Object.keys(output)).toContain('verdict');
+    expect(Object.keys(output)).toContain('recorded' in output ? 'recorded' : 'ranked');
+  });
+
   it('declares an output schema for both tools', async () => {
     const tools = (await client.listTools()).tools;
     for (const name of ['granite_about', 'granite_pool']) {
