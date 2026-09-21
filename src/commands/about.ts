@@ -69,9 +69,18 @@ export function aboutCommand(slug: string, options: AboutOptions): void {
 
     console.log(`About ${found.title}  (${found.type}, ${found.status})`);
     console.log('');
-    if (payload.counts.incoming + payload.counts.outgoing === 0) {
+    const hasAnyReference = found.counts.incoming + found.counts.outgoing > 0;
+    if (!hasAnyReference) {
+      // True of the entity itself, so it stays true under any filter.
       console.log('Nothing links to this note and it links to nothing.');
       console.log('That is worth knowing: no other note leads here.');
+      return;
+    }
+    if (payload.counts.incoming + payload.counts.outgoing === 0) {
+      // The entity has references, just none of the requested type. Saying "nothing links
+      // here" would be false, and the reader would act on it.
+      const requested = options.types!.join(', ');
+      console.log(`No ${requested} note references this one, though ${found.counts.incoming} note(s) link here in total.`);
       return;
     }
     console.log(`${payload.counts.incoming} note(s) link here · it links to ${payload.counts.outgoing}`);

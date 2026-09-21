@@ -36,9 +36,9 @@ describe('aboutCommand', () => {
     );
   };
 
-  const run = (options: Parameters<typeof aboutCommand>[1]): string => {
+  const run = (options: Parameters<typeof aboutCommand>[1], slug = 'monka-care'): string => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    aboutCommand('monka-care', options);
+    aboutCommand(slug, options);
     const out = log.mock.calls.map(call => String(call[0])).join('\n');
     log.mockRestore();
     return out;
@@ -108,4 +108,24 @@ describe('aboutCommand', () => {
     expect(sum(filtered.data.incoming)).toBeLessThan(unfiltered.data.counts.incoming);
     expect(filtered.data.counts.incoming).toBeGreaterThan(0);
   });
-});
+
+  it('does not claim the entity is unreferenced when only the filter is empty', () => {
+    // The entity has four referrers; none of them is a "source". Saying "nothing links to
+    // this note" would be false, and it is the kind of falsehood a reader acts on. This
+    // asserts the human output, where the message is printed — `--json` returns the counts
+    // and never reaches it.
+    const out = run({ types: ['source'] });
+    expect(out).not.toContain('Nothing links to this note');
+    expect(out).toContain('No source note references this one');
+  });
+
+  it('prints the filtered counts when the requested type is present', () => {
+    const out = run({ types: ['meeting'] });
+    expect(out).not.toContain('No meeting note references this one');
+    expect(out).toContain('2 note(s) link here');
+  });
+
+  it('still reports a genuinely unreferenced entity as such', () => {
+    write('notes/notes', 'lonely-org', 'organization', 'An entity nothing points at.');
+    expect(run({}, 'lonely-org')).toContain('Nothing links to this note');
+  });});

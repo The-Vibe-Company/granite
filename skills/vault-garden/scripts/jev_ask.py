@@ -12,11 +12,12 @@ The link graph does not have that problem. So:
 
 1. **Code** narrows using the graph: an entity, its neighbours, and the notes those link
    to. Deterministic, free, language-independent. 761 notes become a few dozen.
-2. **Jev** answers three questions about the pool in ONE request per note:
-   - `has_answer` (Noul) — does the corpus address the question at all?
+2. **Jev** answers questions about the pool in ONE request per note:
    - `relevance` (Score) — how directly does this note answer it?
    - `evidence` (Choice) — which of the note's own sentences carries the answer?
-3. **Code** applies thresholds and reports absence when `has_answer` is low.
+3. **Code** decides: absence is derived from the RANKING (the best relevance score), not
+   from a separate absolute question. An absolute "does the pool have an answer?" Noul was
+   tried and gave a false negative on a case whose answer sat in the pool at rank 3.
 
 The question matters. Asking "is this related?" ranked two generic explainers above the
 note containing the figure. Asking "does this answer the question, and which sentence
@@ -36,6 +37,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from jev_judge import DEFAULT_MODEL, granite_db, post_questions  # noqa: E402
+from jev_answer import evidence_sentence  # noqa: E402
 
 # The absence verdict is derived from the RANKING, not from an absolute question.
 #
@@ -60,19 +62,35 @@ RELEVANCE_LEVELS = [
 ]
 
 
-def sentences(body: str, limit: int) -> list[dict[str, str]]:
-    """Candidate sentences, chosen deterministically so recall stays in code."""
+def sentences(body: str, limit: int) -> list[str]:
+    """Candidate sentences, chosen deterministically so recall stays in code.
+
+    This mirrors `candidateSentences` in `src/core/about.ts`, which is the canonical
+    implementation; the product emits its candidates to JSON and `jev_answer.py` consumes
+    them, so no Python copy is shipped. Keep the two in step: this prototype used to keep
+    headings while the shipped extractor dropped them, so the set it judged was not the set
+    the product produces and the calibration in this file described an unreproducible run.
+
+    The one deliberate difference is the frontmatter strip. The shipped path receives
+    gray-matter output, where frontmatter is already gone, so it must **not** strip (a body
+    can legitimately open with a horizontal rule). This prototype reads raw note bodies,
+    where frontmatter is still present, so it must.
+    """
+    if limit <= 0:
+        return []
     text = re.sub(r"\A---\n[\s\S]*?\n---\s*", " ", body)
     text = re.sub(r"```[\s\S]*?```", " ", text)
-    parts = re.split(r"(?<=[.!?])\s+|\n+", text)
-    out = []
-    for raw in parts:
-        line = raw.strip().lstrip("-*| ").strip()
-        line = re.sub(r"\*\*|__|`", "", line)
-        line = re.sub(r"\s{2,}", " ", line).strip()
+    text = re.sub(r"^#{1,6}\s.*$", " ", text, flags=re.M)
+    out: list[str] = []
+    for raw in re.split(r"(?<=[.!?])\s+|\n+", text):
+        line = re.sub(r"\*\*|__|`", "", raw)
+        line = re.sub(r"\s{2,}", " ", line)
+        line = line.strip().lstrip("-*| ").strip()
         if 30 <= len(line) <= 400:
             out.append(line)
-    return out[:limit]
+            if len(out) >= limit:
+                break
+    return out
 
 
 def neighbours(con: sqlite3.Connection, slug: str, depth: int = 2) -> list[tuple[str, int]]:
@@ -200,11 +218,10 @@ def main(argv: list[str]) -> int:
         sid = d["slug"]
         score = float(answers.get(f"rel::{sid}", {}).get("score", 0.0))
         picked = answers.get(f"ev::{sid}", {}).get("choice")
-        evidence = None
-        if picked and picked != "none" and picked.startswith("s"):
-            idx = int(picked[1:])
-            if idx < len(d["sentences"]):
-                evidence = d["sentences"][idx]
+        # Same strict parse as the shipped consumer: only `s<digits>` names a sentence.
+        # A loose `startswith("s")` mapped "s-1" onto the last sentence and raised on
+        # "sentence2", which presents a quote the model never cited.
+        evidence = evidence_sentence(picked, d["sentences"])
         ranked.append({"slug": sid, "title": d["title"], "type": d["type"],
                        "score": round(score, 2), "evidence": evidence})
     ranked.sort(key=lambda r: -r["score"])
