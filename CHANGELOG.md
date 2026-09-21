@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.20...granite-mem-v0.1.21) (2026-09-21)
+
+
+### Bug Fixes
+
+* repair slug/link resolution and contested-alias folding ([#70](https://github.com/The-Vibe-Company/granite/issues/70)) ([077422d](https://github.com/The-Vibe-Company/granite/commit/077422dcf4699036d5ffba52dec74e908915d100))
+
 ## [0.1.20](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.19...granite-mem-v0.1.20) (2026-09-20)
 
 
