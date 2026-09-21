@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.22...granite-mem-v0.1.23) (2026-09-21)
+
+
+### Features
+
+* **mcp:** expose about and pool as MCP tools ([#74](https://github.com/The-Vibe-Company/granite/issues/74)) ([a5808a8](https://github.com/The-Vibe-Company/granite/commit/a5808a8a5c6014162ac3f069888f52593af5bbea))
+
 ## [0.1.22](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.21...granite-mem-v0.1.22) (2026-09-21)
 
 
