@@ -333,10 +333,15 @@ export function entityPool(
     frontier = next;
   }
 
-  // How many notes sit one hop beyond the depth we walked. Without this a pool capped by
+  // How many NOTES sit one hop beyond the depth we walked. Without this a pool capped by
   // `depth` looks exactly like a complete one, and "absent" reads as a fact about the vault
   // rather than about where the walk stopped. Counting it costs one expansion of the last
   // frontier — the same work the loop already did, run once more.
+  //
+  // Dangling link targets are excluded, like every other count here: the field is documented
+  // as real notes, and a vault with unresolved wikilinks would otherwise inflate the caveat
+  // that is supposed to be trustworthy.
+  const noteExists = db.prepare('SELECT 1 FROM notes WHERE slug = ?');
   const beyondDepth = new Set<string>();
   for (const slug of frontier) {
     for (const row of db
@@ -350,8 +355,9 @@ export function entityPool(
       beyondDepth.add(row.s);
     }
   }
-  for (const s of distance.keys()) beyondDepth.delete(s);
-  beyondDepth.delete(anchor);
+  for (const s of [...beyondDepth]) {
+    if (distance.has(s) || s === anchor || !noteExists.get(s)) beyondDepth.delete(s);
+  }
 
   const ordered = [...distance.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 
@@ -368,10 +374,8 @@ export function entityPool(
   const MAX_CANDIDATES = 255;
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_NEAREST, MAX_CANDIDATES));
 
-  // Prepared once: the per-hop counts and the candidate loop both ask this question, and
-  // a pool around a hub can ask it several hundred times.
-  const noteExists = db.prepare('SELECT 1 FROM notes WHERE slug = ?');
-
+  // `noteExists` is prepared above, before the depth caveat needs it; the per-hop counts and
+  // the candidate loop reuse it, and a pool around a hub can ask it several hundred times.
   const candidates: PoolEntry[] = [];
   let reachableNotes = 0;
   const shownByDistance = new Map<number, number>();
