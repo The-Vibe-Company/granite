@@ -363,14 +363,14 @@ export function entityPool(
 
   // The default has to be both a floor and a ceiling, and "the nearest band" was neither.
   // A leaf with one neighbour defaulted to a one-candidate pool while dozens were reachable;
-  // a hub returned 141 candidates and ~30k tokens. A fixed 30 was worse still: it dropped the
-  // note holding a client's price, which sat 54th of 87 direct neighbours, and said nothing.
+  // a hub returned 141 candidates and ~30k tokens.
   //
-  // DEFAULT_NEAREST is a floor — it keeps taking the distance-sorted candidates until the
-  // pool is useful, so a degenerate band fills up from the next one — and MAX_CANDIDATES is
-  // the ceiling, chosen so a batched judge request stays inside a sane context even with
-  // sentences. `by_distance` reports whatever either bound dropped.
-  const DEFAULT_NEAREST = 60;
+  // 100, not 60. Measured on the real vault: the note that answers "what does the client pay
+  // for managed hosting?" sits at rank **54** of 87 direct neighbours, so a cap of 60 left six
+  // candidates of margin between citing the figure and returning `answered` with **zero
+  // evidence** — a confident verdict with nothing behind it. Measured across limits 20/30/40/
+  // 60/87/100: no citation below 60, the figure cited at 60 and above.
+  const DEFAULT_NEAREST = 100;
   const MAX_CANDIDATES = 255;
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_NEAREST, MAX_CANDIDATES));
 
@@ -390,19 +390,28 @@ export function entityPool(
     if (deliveredCount >= limit) break;
     if (noteExists.get(slug)) deliveredCount++;
   }
+  // `deliveredCount` is bounded by `limit`, and `effectiveLimit <= limit`, so it stays an
+  // upper bound on what is returned — which is all the sentence decision needs.
 
   // Sentences are the expensive field, not the candidates: measured ~211 tokens per candidate
-  // with them against ~42 without. The decision uses the delivered count, not the limit that
-  // was asked for, so a small vault never loses its sentences to a generous default.
+  // with them against ~42 without, and the remote API rejects a request above roughly 100-140
+  // KB. Measured: 100 candidates with sentences is 94-100 KB and accepted; 141 is 142 KB and
+  // rejected with HTTP 400. Both facts push the same way — a large pool ships titles only, and
+  // a very large one is trimmed further so the request can be sent at all.
+  //
+  // These are transport limits, stated rather than hidden. A caller that needs sentences on a
+  // hub must ask per candidate, because one batched request cannot carry that many.
   const CANDIDATES_THAT_FIT_WITH_SENTENCES = 30;
+  const REQUEST_CEILING_CANDIDATES = 120;
   const sentenceCount = options.sentences
     ?? (deliveredCount > CANDIDATES_THAT_FIT_WITH_SENTENCES ? 0 : 6);
   const sentencesOmitted = sentenceCount === 0 && options.sentences === undefined;
+  const effectiveLimit = Math.min(limit, sentenceCount > 0 ? MAX_CANDIDATES : REQUEST_CEILING_CANDIDATES);
 
   for (const [slug, hop] of ordered) {
     // The limit is applied after the existence filter, so a dangling target does not
     // consume one of the requested slots and the caller gets the number they asked for.
-    if (candidates.length >= limit) break;
+    if (candidates.length >= effectiveLimit) break;
     const row = db
       .prepare('SELECT title, type, body FROM notes WHERE slug = ?')
       .get(slug) as { title: string; type: string; body: string } | undefined;
