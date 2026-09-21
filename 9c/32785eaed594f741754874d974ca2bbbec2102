@@ -1,0 +1,16 @@
+src/mcp/judge.ts
+  h_ecee222750141d 371-379,386,396-400,403
+test/mcp/judge.test.ts
+  h_ecee222750141d 533-570
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9c32785eaed594f741754874d974ca2bbbec2102",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
