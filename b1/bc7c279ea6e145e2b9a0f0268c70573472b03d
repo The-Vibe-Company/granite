@@ -1,0 +1,24 @@
+CLAUDE.md
+  h_ecee222750141d 65-77
+src/core/about.ts
+  h_ecee222750141d 468-473
+src/mcp/judge.ts
+  h_ecee222750141d 42,44-81,83-134,191-202,274-275,278,289-345,354-365,382,394-403,405-407,443-450,453,463-464,472-481,516,526-539,623-626,632,666-668
+src/mcp/server.ts
+  h_ecee222750141d 607,633-637,676-689
+test/core/about.test.ts
+  h_ecee222750141d 658-668
+test/mcp/judge.test.ts
+  h_ecee222750141d 1,4-14,106-114,117-122,172-177,211-249,275-514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b1bc7c279ea6e145e2b9a0f0268c70573472b03d",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
