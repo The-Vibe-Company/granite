@@ -1,4 +1,4 @@
-import { slugify } from './slugify.js';
+import { slugVariants } from './slugify.js';
 import type { WikiLink, Note } from './types.js';
 
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
@@ -33,10 +33,12 @@ export function parseWikilinks(body: string): WikiLink[] {
 
 export function resolveWikilinks(links: WikiLink[], allNotes: Note[]): WikiLink[] {
   return links.map(link => {
-    const targetSlug = slugify(link.target);
-
-    // 1. Exact slug match
-    let found = allNotes.find(n => n.slug === targetSlug);
+    // 1. Exact slug match, tolerating legacy slugs that end with a separator.
+    let found: Note | undefined;
+    for (const candidate of slugVariants(link.target)) {
+      found = allNotes.find(n => n.slug === candidate);
+      if (found) break;
+    }
 
     // 2. Title match (case-insensitive)
     if (!found) {

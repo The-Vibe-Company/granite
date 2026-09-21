@@ -78,6 +78,47 @@ describe('resolveText', () => {
     db.close();
   });
 
+  it('resolves a separator-terminated target from a legacy-only vault', () => {
+    // Regression: vaults written before the trailing-separator fix hold slugs like
+    // `long-title-`. slugify() strips trailing separators, so an exact-slug lookup
+    // missed such a note in both directions before the fallback existed.
+    const legacy = createNote(tmpDir, config, 'note', 'Long Title', 'Body.\n');
+    fs.renameSync(legacy.filepath, path.join(path.dirname(legacy.filepath), `${legacy.slug}-.md`));
+
+    const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
+    rebuildIndex(tmpDir, config, db);
+
+    for (const text of ['long-title-', 'long-title']) {
+      const matches = resolveText(db, text);
+      expect(matches[0].slug).toBe('long-title-');
+      expect(matches[0].reason).toBe('slug');
+    }
+
+    db.close();
+  });
+
+  it('binds a separator-terminated target to the legacy note when both slug forms exist', () => {
+    // A vault can hold both `ambiguous.md` and a legacy `ambiguous-.md`. Each spelling
+    // must reach its own note; collapsing the separator form onto the bare slug would
+    // leave the legacy note unreachable.
+    const legacy = createNote(tmpDir, config, 'note', 'Ambiguous', 'Legacy body.\n');
+    fs.renameSync(legacy.filepath, path.join(path.dirname(legacy.filepath), `${legacy.slug}-.md`));
+    createNote(tmpDir, config, 'note', 'Ambiguous', 'Bare body.\n');
+
+    const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
+    rebuildIndex(tmpDir, config, db);
+
+    const legacyForm = resolveText(db, 'ambiguous-');
+    expect(legacyForm[0].slug).toBe('ambiguous-');
+    expect(legacyForm[0].reason).toBe('slug');
+
+    const bareForm = resolveText(db, 'ambiguous');
+    expect(bareForm[0].slug).toBe('ambiguous');
+    expect(bareForm[0].reason).toBe('slug');
+
+    db.close();
+  });
+
   it('suggestStub produces a sluggified stub', () => {
     expect(suggestStub('Acme Corp', 'organization')).toEqual({
       type: 'organization',

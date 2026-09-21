@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { slugify } from './slugify.js';
+import { slugify, slugVariants } from './slugify.js';
 
 export interface ResolveMatch {
   slug: string;
@@ -39,12 +39,14 @@ export function resolveText(
     }
   };
 
-  const targetSlug = slugify(trimmed);
-
-  const slugRow = db.prepare('SELECT slug, title, type FROM notes WHERE slug = ? LIMIT 1')
-    .get(targetSlug) as { slug: string; title: string; type: string } | undefined;
-  if (slugRow) {
-    addMatch({ ...slugRow, score: 1.0, reason: 'slug' });
+  // Legacy slugs can end with a separator, so try the exact slug then its `<slug>-` form.
+  for (const candidate of slugVariants(trimmed)) {
+    const slugRow = db.prepare('SELECT slug, title, type FROM notes WHERE slug = ? LIMIT 1')
+      .get(candidate) as { slug: string; title: string; type: string } | undefined;
+    if (slugRow) {
+      addMatch({ ...slugRow, score: 1.0, reason: 'slug' });
+      break;
+    }
   }
 
   const titleRows = db.prepare('SELECT slug, title, type FROM notes WHERE lower(title) = ?')

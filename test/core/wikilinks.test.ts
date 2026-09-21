@@ -94,4 +94,33 @@ describe('resolveWikilinks', () => {
     expect(resolved[0].resolved).toBe(false);
     expect(resolved[0].resolved_slug).toBeUndefined();
   });
+
+  it('resolves a link to a legacy slug that ends with a separator', () => {
+    // Regression: vaults written before the trailing-separator fix hold slugs like
+    // `long-title-`. slugify() strips trailing separators, so the exact-slug branch
+    // could never match, and the note's own canonical slug was reported as broken.
+    const legacy = [...notes, makeNote('long-title-', 'Long title cut on a separator')];
+
+    for (const target of ['long-title-', 'long-title']) {
+      const resolved = resolveWikilinks(parseWikilinks(`See [[${target}]].`), legacy);
+      expect(resolved[0].resolved).toBe(true);
+      expect(resolved[0].resolved_slug).toBe('long-title-');
+    }
+  });
+
+  it('binds each spelling to its own note when both slug forms exist', () => {
+    // A vault can hold both `ambiguous.md` and a legacy `ambiguous-.md`. Each target
+    // must reach its own note; collapsing `[[ambiguous-]]` onto `ambiguous` would
+    // leave the legacy note reachable by no wikilink and misroute its backlinks.
+    const both = [
+      makeNote('ambiguous', 'Ambiguous'),
+      makeNote('ambiguous-', 'Ambiguous legacy'),
+    ];
+
+    const bare = resolveWikilinks(parseWikilinks('See [[ambiguous]].'), both);
+    expect(bare[0].resolved_slug).toBe('ambiguous');
+
+    const legacy = resolveWikilinks(parseWikilinks('See [[ambiguous-]].'), both);
+    expect(legacy[0].resolved_slug).toBe('ambiguous-');
+  });
 });
