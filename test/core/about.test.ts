@@ -123,7 +123,11 @@ describe('entityPool', () => {
   it('can return titles only when sentences are not wanted', () => {
     const d = db();
     const result = entityPool(d, 'monka-care', { sentences: 0 })!;
-    expect(result.candidates.every(c => c.sentences === null)).toBe(true);
+    // An empty array, not null: this goes out as JSON and is read by consumers in other
+    // languages, where a null turns into a branch (or a crash) instead of an empty list.
+    expect(result.candidates.length).toBeGreaterThan(0);
+    expect(result.candidates.every(c => Array.isArray(c.sentences))).toBe(true);
+    expect(result.candidates.every(c => c.sentences.length === 0)).toBe(true);
     d.close();
   });
 
@@ -169,6 +173,14 @@ describe('candidateSentences', () => {
     const out = candidateSentences(body, 3);
     expect(out).toHaveLength(3);
   });
+
+  it('returns nothing when asked for nothing', () => {
+    // `0` is the documented "titles only" mode. The loop pushes before it can test the
+    // bound, so without an explicit guard `limit: 0` handed back one sentence anyway.
+    const body = 'Cette phrase est suffisamment longue pour être un candidat sérieux.';
+    expect(candidateSentences(body, 0)).toEqual([]);
+    expect(candidateSentences(body, -1)).toEqual([]);
+  });
 });
 
 describe('pool ordering and bounds', () => {
@@ -207,18 +219,6 @@ describe('pool ordering and bounds', () => {
   });
 });
 
-describe('about flags', () => {
-  it('renders both sections when neither flag is given, and when both are', () => {
-    // The guard combination `if (!outgoing)` / `if (!incoming)` suppressed both sections
-    // when both flags were passed, so the only way to see nothing was to ask for both.
-    // This asserts the selection logic the command uses.
-    const select = (incoming?: boolean, outgoing?: boolean) => ({
-      showIncoming: Boolean(incoming) || !outgoing,
-      showOutgoing: Boolean(outgoing) || !incoming,
-    });
-    expect(select()).toEqual({ showIncoming: true, showOutgoing: true });
-    expect(select(true, true)).toEqual({ showIncoming: true, showOutgoing: true });
-    expect(select(true, undefined)).toEqual({ showIncoming: true, showOutgoing: false });
-    expect(select(undefined, true)).toEqual({ showIncoming: false, showOutgoing: true });
-  });
-});
+// The `about` flag combinations are covered against the real `aboutCommand` in
+// `test/commands/about.test.ts`. A local `select()` helper used to live here and
+// re-implemented the guards, which only proved that a copy of the logic worked.

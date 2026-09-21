@@ -29,7 +29,7 @@ Read-only. Nothing is written to the vault.
 """
 from __future__ import annotations
 
-import argparse, json, os, sys
+import argparse, json, os, re, sys
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +86,22 @@ def build_questions(candidates: list[dict[str, Any]]) -> dict[str, Any]:
                 | {"none": "No sentence answers it."},
             }
     return questions
+
+
+def evidence_sentence(picked: Any, sentences: list[str]) -> str | None:
+    """Resolve the sentence the model cited, or ``None`` when it cited nothing usable.
+
+    Only ``s<digits>`` names a sentence; the criteria the model is given are ``s0..sN``
+    plus ``none``. A loose ``startswith("s")`` accepted two wrong shapes: ``"sentence2"``
+    (``int()`` raised and the whole answer lost its evidence) and ``"s-1"`` (which resolved
+    to the *last* sentence, presenting a real quote the model never cited). An
+    unrecognised token is no evidence, which is the honest reading.
+    """
+    match = re.fullmatch(r"s(\d+)", picked) if isinstance(picked, str) else None
+    if match is None:
+        return None
+    index = int(match.group(1))
+    return sentences[index] if index < len(sentences) else None
 
 
 def main(argv: list[str]) -> int:
@@ -157,11 +173,7 @@ def main(argv: list[str]) -> int:
         score = float(answers.get(f"rel::{cid}", {}).get("score", 0.0))
         sentences = candidate.get("sentences") or []
         picked = answers.get(f"ev::{cid}", {}).get("choice")
-        evidence = None
-        if picked and picked != "none" and picked.startswith("s"):
-            index = int(picked[1:])
-            if index < len(sentences):
-                evidence = sentences[index]
+        evidence = evidence_sentence(picked, sentences)
         ranked.append({
             "slug": cid, "title": candidate["title"], "type": candidate["type"],
             "distance": candidate.get("distance"),

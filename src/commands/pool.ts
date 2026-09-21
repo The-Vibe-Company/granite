@@ -50,7 +50,7 @@ export function poolCommand(anchor: string, options: PoolOptions): void {
     }
     for (const candidate of pool.candidates) {
       console.log(`  [${candidate.distance}] ${candidate.title}  (${candidate.type})`);
-      for (const sentence of candidate.sentences ?? []) console.log(`        · ${sentence}`);
+      for (const sentence of candidate.sentences) console.log(`        · ${sentence}`);
     }
     console.log('');
     console.log(`${pool.candidates.length} candidate(s) of ${pool.reachable} reachable.`);

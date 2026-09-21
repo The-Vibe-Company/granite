@@ -121,8 +121,14 @@ export interface PoolEntry {
   type: string;
   /** Graph distance from the anchor. 1 = directly linked. */
   distance: number;
-  /** Candidate sentences, or null when the caller asked for titles only. */
-  sentences: string[] | null;
+  /**
+   * Candidate sentences, empty when the caller asked for titles only.
+   *
+   * This is an array rather than `null` on purpose: the field is serialised into JSON and
+   * read by consumers in other languages, where a null and an absent key both turn into
+   * awkward branches (and `len(None)` is a crash, not an empty list).
+   */
+  sentences: string[];
 }
 
 export interface EntityPool {
@@ -146,6 +152,11 @@ export function candidateSentences(body: string, limit = 6): string[] {
   // with a horizontal rule and contains a later `---`, silently deleting the content
   // between them. A dead `\A` pattern that never matched was the earlier version of this
   // mistake: it looked defensive and was unreachable, while its "fix" became destructive.
+  //
+  // Asked for nothing, return nothing. Without this the loop below always pushes one
+  // sentence before it can test the bound, so `limit: 0` — the documented "titles only"
+  // mode — handed back a sentence anyway.
+  if (limit <= 0) return [];
   const text = (body ?? '')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/^#{1,6}\s.*$/gm, ' ');
@@ -158,8 +169,6 @@ export function candidateSentences(body: string, limit = 6): string[] {
       .trim();
     if (line.length >= 30 && line.length <= 400) {
       out.push(line);
-      // Check after pushing: the previous placement let one extra sentence through
-      // whenever the limit was reached mid-loop.
       if (out.length >= limit) break;
     }
   }
@@ -231,7 +240,7 @@ export function entityPool(
       title: row.title ?? slug,
       type: row.type ?? 'unknown',
       distance: hop,
-      sentences: sentenceCount > 0 ? candidateSentences(row.body, sentenceCount) : null,
+      sentences: candidateSentences(row.body, sentenceCount),
     });
   }
 

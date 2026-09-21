@@ -47,10 +47,19 @@ export function aboutCommand(slug: string, options: AboutOptions): void {
         ? Object.fromEntries(Object.entries(g).filter(([type]) => options.types!.includes(type)))
         : g;
 
+    // The counts describe what is about to be rendered, so they are taken from the
+    // filtered groups. Reporting the unfiltered totals printed "3 note(s) link here"
+    // directly above a two-note group.
+    const countRefs = (g: Record<string, EntityReference[]>) =>
+      Object.values(g).reduce((total, list) => total + list.length, 0);
+    const incoming = filterTypes(found.incoming);
+    const outgoing = filterTypes(found.outgoing);
+
     const payload = {
       ...found,
-      incoming: filterTypes(found.incoming),
-      outgoing: filterTypes(found.outgoing),
+      incoming,
+      outgoing,
+      counts: { incoming: countRefs(incoming), outgoing: countRefs(outgoing) },
     };
 
     if (options.json) {
@@ -60,12 +69,12 @@ export function aboutCommand(slug: string, options: AboutOptions): void {
 
     console.log(`About ${found.title}  (${found.type}, ${found.status})`);
     console.log('');
-    if (found.counts.incoming + found.counts.outgoing === 0) {
+    if (payload.counts.incoming + payload.counts.outgoing === 0) {
       console.log('Nothing links to this note and it links to nothing.');
       console.log('That is worth knowing: no other note leads here.');
       return;
     }
-    console.log(`${found.counts.incoming} note(s) link here · it links to ${found.counts.outgoing}`);
+    console.log(`${payload.counts.incoming} note(s) link here · it links to ${payload.counts.outgoing}`);
     console.log('');
 
     // Asking for both sections is the default, not a request to render neither. The
