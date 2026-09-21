@@ -489,13 +489,49 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       types: z.array(z.string()).optional().describe('Restrict to these note types (e.g. ["meeting", "source"]). The counts returned describe the filtered view.'),
       direction: z.enum(['both', 'incoming', 'outgoing']).optional().describe('Which references to include. Defaults to both.'),
     },
+    // A 25k-character markdown answer is hard to act on programmatically, and this is the
+    // tool an agent reaches for when it cannot guess the wording. The structure is returned
+    // alongside the prose so a caller can read the graph without parsing a document.
+    outputSchema: {
+      slug: z.string(),
+      title: z.string(),
+      type: z.string(),
+      status: z.string(),
+      counts: z.object({
+        incoming: z.number().int().describe('References to this entity, after any type filter.'),
+        outgoing: z.number().int().describe('References from this entity, after any type filter.'),
+      }),
+      unfiltered_counts: z.object({
+        incoming: z.number().int(),
+        outgoing: z.number().int(),
+      }).optional().describe('Totals before the type filter, so "no reference of that type" is not confused with "no references".'),
+      incoming: z.record(z.string(), z.array(z.object({
+        slug: z.string(),
+        title: z.string(),
+        type: z.string(),
+        contexts: z.array(z.string()).describe('The sentences that explain why the note points here.'),
+      }))).describe('References grouped by the referring note\'s type.'),
+      outgoing: z.record(z.string(), z.array(z.object({
+        slug: z.string(),
+        title: z.string(),
+        type: z.string(),
+        contexts: z.array(z.string()),
+      }))).describe('Notes this entity links to, grouped by their type.'),
+      filtered_by: z.array(z.string()).optional().describe('The types that were requested, when a filter was applied.'),
+    },
     annotations: readOnlyAnnotations,
   }, async ({ slug, types, direction }) => {
     const entity = runtime.readEntity(slug, { types });
-    return toolResult(renderAboutMarkdown(entity, {
-      incoming: direction !== 'outgoing',
-      outgoing: direction !== 'incoming',
-    }));
+    return {
+      content: [{
+        type: 'text' as const,
+        text: renderAboutMarkdown(entity, {
+          incoming: direction !== 'outgoing',
+          outgoing: direction !== 'incoming',
+        }),
+      }],
+      structuredContent: entity as unknown as Record<string, unknown>,
+    };
   });
 
   server.registerTool('granite_pool', {
@@ -507,10 +543,29 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       limit: z.number().int().min(1).optional().describe('Maximum candidates to return. Defaults to 30.'),
       sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 returns titles only. Defaults to 6.'),
     },
+    // The pool is also returned as `structuredContent`, not only as prose, because the
+    // deterministic half exists to feed the semantic half: a judge is handed this pool as
+    // input. A caller forced to re-parse the markdown to recover the candidates would be
+    // re-deriving the exact thing this tool exists to hand over, and would get it wrong.
+    outputSchema: {
+      anchor: z.string().describe('Slug the pool was grown around.'),
+      anchor_title: z.string().describe('Title of the anchor note.'),
+      reachable: z.number().int().describe('Notes reachable within the depth, before the limit was applied.'),
+      candidates: z.array(z.object({
+        slug: z.string(),
+        title: z.string(),
+        type: z.string(),
+        distance: z.number().int().describe('Graph hops from the anchor. 1 = directly linked.'),
+        sentences: z.array(z.string()).describe('Deterministic candidate sentences; empty when titles only were requested.'),
+      })),
+    },
     annotations: readOnlyAnnotations,
   }, async ({ anchor, depth, limit, sentences }) => {
     const pool = runtime.buildPool(anchor, { depth, limit, sentences });
-    return toolResult(renderPoolMarkdown(pool));
+    return {
+      content: [{ type: 'text' as const, text: renderPoolMarkdown(pool) }],
+      structuredContent: pool as unknown as Record<string, unknown>,
+    };
   });
 
   if (canWrite) server.registerTool('granite_revise_note', {
