@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.23...granite-mem-v0.1.24) (2026-09-21)
+
+
+### Features
+
+* **mcp:** return the graph tools' result as structure, not only as prose ([#76](https://github.com/The-Vibe-Company/granite/issues/76)) ([5b89a1d](https://github.com/The-Vibe-Company/granite/commit/5b89a1d489a483955fd735964d217bb3718acfab))
+
 ## [0.1.23](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.22...granite-mem-v0.1.23) (2026-09-21)
 
 
