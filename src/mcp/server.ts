@@ -547,8 +547,8 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     inputSchema: {
       anchor: z.string().describe('Slug of the note to grow the pool around.'),
       depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
-      limit: z.number().int().min(1).optional().describe('Maximum candidates to return. Defaults to 30.'),
-      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 returns titles only. Defaults to 6.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to return. Defaults to the whole nearest graph band, which is bounded by the vault; by_distance reports exactly what a smaller limit left out.'),
+      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 returns titles only. Defaults to 6, or to 0 when the nearest band is large — titles make a big neighbourhood affordable to see, and the response says when sentences were omitted.'),
     },
     // The pool is also returned as `structuredContent`, not only as prose, because the
     // deterministic half exists to feed the semantic half: a judge is handed this pool as
@@ -587,8 +587,8 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       question: z.string().describe('The question to answer from the vault.'),
       anchor: z.string().describe('Slug of the note to grow the candidate set around — an entity, a client, a project.'),
       depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
-      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to 30; each adds one score and one choice question to a single batched request, so a larger pool costs little more time.'),
-      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note; 0 judges titles only. Defaults to 6.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number; each candidate adds one score and one evidence question to a single batched request, so a larger pool costs little more time.'),
+      sentences: z.number().int().min(0).optional().describe('Candidate sentences per note. Defaults to 6 here: judging needs the text, which is why this tool never takes the titles-only default that granite_pool uses for a large neighbourhood.'),
     },
     outputSchema: {
       status: z.string().describe('ok, or unavailable when no API key is configured.'),
@@ -632,7 +632,13 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       };
     }
 
-    const pool = runtime.buildPool(anchor, { depth, limit, sentences });
+    const pool = runtime.buildPool(anchor, {
+      depth,
+      limit,
+      // Judging needs sentences: this tool exists to find the line that answers, so it never
+      // takes the titles-only default a large neighbourhood gets from `granite_pool`.
+      sentences: sentences ?? 6,
+    });
     const verdict = await judgePool(pool, question, key, judgeModel());
 
     const lines: string[] = [

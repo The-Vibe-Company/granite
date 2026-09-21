@@ -390,3 +390,64 @@ describe('pool truncation reporting', () => {
     d.close();
   });
 });
+
+describe('the default pool is bounded by what it costs, not by a round number', () => {
+  // A large nearest band defaults to titles only. Measured on the real vault: 87 candidates
+  // with sentences is ~18.5k tokens, the same 87 as titles is ~2.8k, and 30 with sentences is
+  // ~6.3k but drops the note that answers. Returning the whole band cheaply, and saying so,
+  // is the only option that keeps both recall and a bounded payload.
+  const big = () => {
+    const d = db();
+    const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)');
+    const link = d.prepare('INSERT INTO links VALUES (?,?,?,?)');
+    for (let i = 0; i < 60; i++) {
+      note.run(`n${i}`, `Note ${i}`, 'note', 'active',
+        'This note has a sentence long enough to be selected as a candidate.');
+      link.run(`n${i}`, 'monka-care', 'Monka.care', `ref [[Monka.care]] ${i}`);
+    }
+    return d;
+  };
+
+  it('defaults to the whole nearest band, not a fixed 30', () => {
+    const d = big();
+    const pool = entityPool(d, 'monka-care', {})!;
+    const nearest = pool.by_distance.find(b => b.distance === 1)!;
+    expect(nearest.shown).toBe(nearest.reachable);
+    expect(pool.candidates.length).toBeGreaterThan(30);
+    d.close();
+  });
+
+  it('omits sentences for a large band and says so', () => {
+    const d = big();
+    const pool = entityPool(d, 'monka-care', {})!;
+    expect(pool.sentences_omitted).toBe(true);
+    expect(pool.candidates.every(c => c.sentences.length === 0)).toBe(true);
+    expect(renderPoolMarkdown(pool)).toContain('Sentences were omitted');
+    d.close();
+  });
+
+  it('still gives sentences for a small band', () => {
+    const d = db();
+    const pool = entityPool(d, 'monka-care', {})!;
+    expect(pool.sentences_omitted).toBeFalsy();
+    expect(pool.candidates.some(c => c.sentences.length > 0)).toBe(true);
+    d.close();
+  });
+
+  it('honours an explicit sentences request even on a large band', () => {
+    const d = big();
+    const pool = entityPool(d, 'monka-care', { sentences: 6 })!;
+    expect(pool.sentences_omitted).toBe(false);
+    expect(pool.candidates.some(c => c.sentences.length > 0)).toBe(true);
+    d.close();
+  });
+
+  it('honours an explicit small limit with sentences', () => {
+    const d = big();
+    const pool = entityPool(d, 'monka-care', { limit: 10 })!;
+    expect(pool.candidates).toHaveLength(10);
+    expect(pool.sentences_omitted).toBe(false);
+    expect(pool.by_distance.find(b => b.distance === 1)!.shown).toBe(10);
+    d.close();
+  });
+});

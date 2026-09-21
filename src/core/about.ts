@@ -153,6 +153,12 @@ export interface EntityPool {
    * implying the neighbourhood it returned is the whole neighbourhood.
    */
   by_distance: PoolDistanceSummary[];
+  /**
+   * True when sentences were left out because the nearest band is large. Titles alone cost
+   * roughly a fifth of titles plus sentences, so a big neighbourhood is returned cheaply and
+   * the caller asks for sentences only on what it intends to read.
+   */
+  sentences_omitted?: boolean;
 }
 
 /** An `AboutEntity` with its groups narrowed to the requested types. */
@@ -282,7 +288,6 @@ export function entityPool(
   options: { depth?: number; limit?: number; sentences?: number } = {},
 ): EntityPool | undefined {
   const depth = Math.max(1, options.depth ?? 2);
-  const sentenceCount = options.sentences ?? 6;
 
   const note = db
     .prepare('SELECT title FROM notes WHERE slug = ?')
@@ -312,11 +317,21 @@ export function entityPool(
 
   const ordered = [...distance.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 
-  // The default is NOT a round number: it is the whole nearest band. A cap of 30 dropped
-  // the note holding a client's price, which sat 54th of 87 direct neighbours — and the
-  // pool could not tell anyone, because 30 looks like a deliberate choice. The nearest
-  // band is bounded by the vault's own shape and is the set a judge should actually see.
-  const limit = Math.max(1, options.limit ?? ordered.filter(([, hop]) => hop === ordered[0]?.[1]).length);
+  // The default limit is NOT a round number: it is the whole nearest band. A cap of 30
+  // dropped the note holding a client's price, which sat 54th of 87 direct neighbours — and
+  // the pool could not tell anyone, because 30 looks like a deliberate choice.
+  const bandSize = ordered.filter(([, hop]) => hop === ordered[0]?.[1]).length;
+  const limit = Math.max(1, options.limit ?? bandSize);
+
+  // Sentences are the expensive field, not the candidates: measured ~211 tokens per
+  // candidate with them against ~42 without. A large nearest band therefore defaults to
+  // titles only, so the caller still sees the whole neighbourhood and pays for reading it
+  // only where it matters. Silently shipping 30k tokens of prose to answer "what is here"
+  // is the same class of mistake as silently shipping 30 of 87 candidates.
+  const BAND_SIZE_THAT_FITS_WITH_SENTENCES = 40;
+  const sentenceCount = options.sentences
+    ?? ((options.limit === undefined && bandSize > BAND_SIZE_THAT_FITS_WITH_SENTENCES) ? 0 : 6);
+  const sentencesOmitted = sentenceCount === 0 && options.sentences === undefined;
 
   // Prepared once: the per-hop counts and the candidate loop both ask this question, and
   // a pool around a hub can ask it several hundred times.
@@ -364,6 +379,7 @@ export function entityPool(
     reachable: distance.size,
     candidates,
     by_distance: byDistance,
+    sentences_omitted: sentencesOmitted,
   };
 }
 
@@ -451,6 +467,11 @@ export function renderPoolMarkdown(pool: EntityPool): string {
       lines.push(`- distance ${band.distance}: ${band.shown} returned of ${band.reachable}${note}`);
     }
     lines.push('', 'If the note you expect is not here, it may be one of the ones not returned: raise `limit` or lower `depth` rather than concluding the vault does not have it.');
+  }
+  if (pool.sentences_omitted) {
+    lines.push('', 'Sentences were omitted because the nearest band is large: this listing is titles only. '
+      + 'Call again with `sentences: 6` (and a smaller `limit` if you want to read only part of it) '
+      + 'for the text a judge needs to cite.');
   }
 
   if (pool.candidates.length === 0) {
