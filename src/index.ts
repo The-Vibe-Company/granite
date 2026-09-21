@@ -7,6 +7,8 @@ import { showCommand } from './commands/show.js';
 import { searchCommand } from './commands/search.js';
 import { factsCommand } from './commands/facts.js';
 import { entitiesCommand } from './commands/entities.js';
+import { aboutCommand } from './commands/about.js';
+import { poolCommand } from './commands/pool.js';
 import { backlinksCommand } from './commands/backlinks.js';
 import { suggestLinksCommand } from './commands/suggest-links.js';
 import { recommendCommand } from './commands/recommend.js';
@@ -52,6 +54,35 @@ import {
   syncWatchCommand,
 } from './commands/sync.js';
 import { GRANITE_VERSION } from './version.js';
+
+/**
+ * Parse a numeric flag and fail loudly on junk.
+ *
+ * `parseInt('abc', 10)` is NaN, and `Math.max(1, NaN)` is NaN, so a typo silently
+ * produced a pool of zero candidates and a cheerful "nothing is reachable" instead of
+ * an error the caller could act on.
+ */
+function positiveInt(value: string): number {
+  if (!/^\d+$/.test(value.trim())) {
+    throw new InvalidArgumentError(`Expected a positive integer, got "${value}".`);
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new InvalidArgumentError(`Expected a positive integer, got "${value}".`);
+  }
+  return parsed;
+}
+
+function nonNegativeInt(value: string): number {
+  if (!/^\d+$/.test(value.trim())) {
+    throw new InvalidArgumentError(`Expected a non-negative integer, got "${value}".`);
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new InvalidArgumentError(`Expected a non-negative integer, got "${value}".`);
+  }
+  return parsed;
+}
 
 const program = new Command();
 
@@ -167,6 +198,33 @@ program
       review: options.review,
       types: options.type ? options.type.split(',').map(t => t.trim()).filter(Boolean) : undefined,
     });
+  });
+
+program
+  .command('about <slug>')
+  .description('Everything the vault knows about one note — reachable through the graph, not by wording')
+  .option('--json', 'Output as JSON (agent-friendly)')
+  .option('--incoming', 'Only show notes that link here')
+  .option('--outgoing', 'Only show notes this one links to')
+  .option('--type <types>', 'Restrict to comma-separated note types')
+  .action((slug: string, options: { json?: boolean; incoming?: boolean; outgoing?: boolean; type?: string }) => {
+    aboutCommand(slug, {
+      json: options.json,
+      incoming: options.incoming,
+      outgoing: options.outgoing,
+      types: options.type ? options.type.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+    });
+  });
+
+program
+  .command('pool <slug>')
+  .description('Emit the bounded candidate set a semantic judge would decide on — deterministic, no model')
+  .option('--json', 'Output as JSON (agent-friendly)')
+  .option('--depth <n>', 'Graph hops to walk (default 2)', positiveInt)
+  .option('--limit <n>', 'Maximum candidates (default 30)', positiveInt)
+  .option('--sentences <n>', 'Candidate sentences per note, 0 for titles only (default 6)', nonNegativeInt)
+  .action((slug: string, options: { json?: boolean; depth?: number; limit?: number; sentences?: number }) => {
+    poolCommand(slug, options);
   });
 
 // ─── Compile ──────────────────────────────────────────────────────────
