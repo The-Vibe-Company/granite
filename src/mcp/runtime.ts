@@ -14,6 +14,13 @@ import {
   type GardenAdjudicationReasonCode,
 } from '../core/garden-adjudications.js';
 import { extractDocument as extractDocumentFromFile, type ExtractDocumentResult } from '../core/extract-document.js';
+import {
+  aboutEntity as readAboutEntity,
+  entityPool as readEntityPool,
+  filterAbout,
+  renderAboutMarkdown,
+  renderPoolMarkdown,
+} from '../core/about.js';
 import { buildFactLedger, currentStateOf, factsFromNotes, type Contradiction, type Fact } from '../core/facts.js';
 import { findAlignmentCandidates, planAlignment, readEntityNotes, type AlignmentPlan } from '../core/entities.js';
 import { importDocument as importDocumentToVault } from '../core/import-document.js';
@@ -487,6 +494,38 @@ export class GraniteMcpRuntime {
     this.requireNote(slug);
     this.refreshIndex();
     return getBacklinks(this.db, slug);
+  }
+
+  /**
+   * Read an entity through the notes that reference it.
+   *
+   * This is the graph access path: it answers "what does the vault know about X" without
+   * depending on the wording of the answer, which is what makes it language-independent.
+   */
+  readEntity(slug: string, options: { types?: string[] } = {}) {
+    this.requireNote(slug);
+    this.refreshIndex();
+    const entity = readAboutEntity(this.db, slug);
+    // `readAboutEntity` returns undefined only for a slug with no row, and `requireNote`
+    // above has already rejected that, so reaching here with nothing would be a real bug.
+    if (!entity) throw new Error(`Entity not found: ${slug}`);
+    return filterAbout(entity, options.types);
+  }
+
+  /**
+   * Emit the bounded, judge-ready candidate set around an anchor.
+   *
+   * Deliberately split from the judging: this decides *what is worth judging* and is free,
+   * deterministic and testable. Ordering is by graph distance only — an earlier version
+   * ordered by lexical overlap with the question and pushed the answering note out of the
+   * pool, which is the exact failure this path exists to fix.
+   */
+  buildPool(anchor: string, options: { depth?: number; limit?: number; sentences?: number } = {}) {
+    this.requireNote(anchor);
+    this.refreshIndex();
+    const pool = readEntityPool(this.db, anchor, options);
+    if (!pool) throw new Error(`Note not found: ${anchor}`);
+    return pool;
   }
 
   suggestLinks(slug: string) {
