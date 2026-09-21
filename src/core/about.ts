@@ -160,6 +160,12 @@ export interface EntityPool {
    */
   sentences_omitted?: boolean;
   /**
+   * True when the transport ceiling trimmed the pool below the requested limit. The remedy for
+   * this is NOT "raise `limit`" — the request would be rejected — so the caller is told which
+   * bound actually applied.
+   */
+  trimmed_by_transport?: boolean;
+  /**
    * Real notes sitting one hop beyond the walked depth. Zero means the walk covered
    * everything adjacent to what it saw; non-zero means a depth-capped pool is a boundary,
    * not a complete answer.
@@ -363,13 +369,13 @@ export function entityPool(
 
   // The default has to be both a floor and a ceiling, and "the nearest band" was neither.
   // A leaf with one neighbour defaulted to a one-candidate pool while dozens were reachable;
-  // a hub returned 141 candidates and ~30k tokens. A fixed 30 was worse still: it dropped the
-  // note holding a client's price, which sat 54th of 87 direct neighbours, and said nothing.
+  // a hub returned 141 candidates and ~30k tokens.
   //
-  // DEFAULT_NEAREST is a floor — it keeps taking the distance-sorted candidates until the
-  // pool is useful, so a degenerate band fills up from the next one — and MAX_CANDIDATES is
-  // the ceiling, chosen so a batched judge request stays inside a sane context even with
-  // sentences. `by_distance` reports whatever either bound dropped.
+  // 60, decided by the byte budget rather than by a round number. The answering note measures at
+  // rank **54** of 87 direct neighbours, and the serialized request with sentences allows ~60
+  // candidates under the measured ceiling, so 60 is the largest default that both reaches the
+  // answer and can actually be sent. Measured across limits 20/30/40/60/87/100: the figure is
+  // cited at 60 and above and not below — so this sits exactly on the boundary that works.
   const DEFAULT_NEAREST = 60;
   const MAX_CANDIDATES = 255;
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_NEAREST, MAX_CANDIDATES));
@@ -390,19 +396,36 @@ export function entityPool(
     if (deliveredCount >= limit) break;
     if (noteExists.get(slug)) deliveredCount++;
   }
+  // `deliveredCount` is bounded by `limit`, and `effectiveLimit <= limit`, so it stays an
+  // upper bound on what is returned — which is all the sentence decision needs.
 
   // Sentences are the expensive field, not the candidates: measured ~211 tokens per candidate
-  // with them against ~42 without. The decision uses the delivered count, not the limit that
-  // was asked for, so a small vault never loses its sentences to a generous default.
+  // with them against ~42 without, and the remote API rejects a request above roughly 100-140
+  // KB. Measured: 100 candidates with sentences is 94-100 KB and accepted; 141 is 142 KB and
+  // rejected with HTTP 400. Both facts push the same way — a large pool ships titles only, and
+  // a very large one is trimmed further so the request can be sent at all.
+  //
+  // These are transport limits, stated rather than hidden. A caller that needs sentences on a
+  // hub must ask per candidate, because one batched request cannot carry that many.
   const CANDIDATES_THAT_FIT_WITH_SENTENCES = 30;
+  // Measured, not inferred: a candidate with six sentences costs **~2.05 KB** in the serialized
+  // request, so 120 candidates is 248 KB — far above the ~142 KB the API rejects, and the byte
+  // guard added in `judge.ts` refused it. 60 candidates is ~122 KB, which fits with headroom and
+  // still reaches the answering note measured at rank 54. The earlier estimate of ~1.03 KB per
+  // candidate was wrong by a factor of two and made this ceiling three times too high.
+  const REQUEST_CEILING_CANDIDATES = 60;
   const sentenceCount = options.sentences
     ?? (deliveredCount > CANDIDATES_THAT_FIT_WITH_SENTENCES ? 0 : 6);
   const sentencesOmitted = sentenceCount === 0 && options.sentences === undefined;
+  // Sentences are what makes a request large, so the tight ceiling belongs to the branch that
+  // carries them. Inverted (sentences -> 255), `granite_answer(limit: 141)` on a hub sends the
+  // ~142 KB body the measurement above records as HTTP 400, and the judge throws with no answer.
+  const effectiveLimit = Math.min(limit, sentenceCount > 0 ? REQUEST_CEILING_CANDIDATES : MAX_CANDIDATES);
 
   for (const [slug, hop] of ordered) {
     // The limit is applied after the existence filter, so a dangling target does not
     // consume one of the requested slots and the caller gets the number they asked for.
-    if (candidates.length >= limit) break;
+    if (candidates.length >= effectiveLimit) break;
     const row = db
       .prepare('SELECT title, type, body FROM notes WHERE slug = ?')
       .get(slug) as { title: string; type: string; body: string } | undefined;
@@ -442,6 +465,9 @@ export function entityPool(
     by_distance: byDistance,
     beyond_depth: beyondDepth.size,
     sentences_omitted: sentencesOmitted,
+    // Set from what was actually returned: comparing the two limits up front reported a trim
+    // even when the pool was smaller than either bound and nothing was dropped.
+    trimmed_by_transport: candidates.length >= effectiveLimit && effectiveLimit < limit,
   };
 }
 
@@ -528,7 +554,15 @@ export function renderPoolMarkdown(pool: EntityPool): string {
       const note = band.shown < band.reachable ? `  (${band.reachable - band.shown} not returned)` : '';
       lines.push(`- distance ${band.distance}: ${band.shown} returned of ${band.reachable}${note}`);
     }
-    lines.push('', 'If the note you expect is not here, it may be one of the ones not returned: raise `limit` or lower `depth` rather than concluding the vault does not have it.');
+    lines.push(
+      '',
+      pool.trimmed_by_transport
+        ? 'The transport ceiling trimmed this pool, so raising `limit` will NOT return more with '
+          + 'sentences: one batched request cannot carry that many. Ask again with `sentences: 0` '
+          + 'to see the whole neighbourhood, or narrow with `depth`.'
+        : 'If the note you expect is not here, it may be one of the ones not returned: raise '
+          + '`limit` or lower `depth` rather than concluding the vault does not have it.',
+    );
   }
   if (pool.beyond_depth > 0) {
     lines.push('', `Depth bound reached: ${pool.beyond_depth} further note(s) sit one hop beyond the walked depth. `

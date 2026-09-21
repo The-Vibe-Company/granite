@@ -974,7 +974,7 @@ export class GraniteMcpRuntime {
           // wrong path threw, and the catch below turned it into a silent "nothing proposed".
           title: String(note.frontmatter?.title ?? note.slug),
           body: note.body ?? '',
-        });
+        }, this.config);
       })
       .catch((error: unknown) => {
         // Never silent. A judgment that fails leaves the capture intact, but swallowing the

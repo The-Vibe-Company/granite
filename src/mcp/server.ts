@@ -584,6 +584,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         reachable: z.number().int().describe('Real notes at this distance, returned or not.'),
         shown: z.number().int().describe('How many of them this pool returned.'),
       })).describe('Per-hop reachable/shown counts. Use this to tell "the vault does not have it" from "the limit dropped it" before concluding anything is absent.'),
+      trimmed_by_transport: z.boolean().optional().describe('True when the transport ceiling, not the requested limit, bounded this pool. Raising `limit` will not return more with sentences; ask with sentences: 0 to see the whole neighbourhood.'),
       sentences_omitted: z.boolean().optional().describe('True when this listing is titles only because the nearest band is large. Call again with sentences: 6 for the text a judge needs to cite.'),
       beyond_depth: z.number().int().describe('Real notes sitting one hop beyond the walked depth. Non-zero means this pool is a boundary, not the edge of what the vault holds: raise depth before concluding anything is absent.'),
     },
@@ -1228,19 +1229,28 @@ function readBearerToken(header: string | undefined): string | null {
  * three-in-four judgment into three-in-four wikilinks, and a wrong wikilink is silent.
  */
 function renderProposedLinks(summary: string, proposed?: LinkProposalResult): string {
-  if (!proposed || proposed.proposed.length === 0) {
-    if (proposed && proposed.not_judged > 0) {
-      return `${summary}\n\nLink proposals: Jev could not judge ${proposed.not_judged} candidate(s); nothing was written.`;
-    }
-    return summary;
+  if (!proposed) return summary;
+  const parts: string[] = [summary];
+
+  // Routing, which used to be computed and cached but never shown on this path — the two extra
+  // questions cost a measured 1-in-14 link shift and bought the caller nothing.
+  const routing: string[] = [];
+  if (proposed.note_type && proposed.note_type !== 'OTHER') {
+    routing.push(`- type: \`${proposed.note_type}\``);
   }
-  const lines = proposed.proposed.map(
-    link => `- [[${link.target}]] — ${link.target_title} (p=${link.link_probability})`,
-  );
-  return [
-    summary,
-    '',
-    `Proposed links (${proposed.proposed.length}) — review before applying, nothing is written:`,
-    ...lines,
-  ].join('\n');
+  if (proposed.tags?.length) routing.push(`- tags: ${proposed.tags.map(t => `\`${t}\``).join(', ')}`);
+  if (routing.length > 0) {
+    parts.push('', 'Proposed routing — review before applying, nothing is written:', ...routing);
+  }
+
+  if (proposed.proposed.length > 0) {
+    parts.push(
+      '',
+      `Proposed links (${proposed.proposed.length}) — review before applying, nothing is written:`,
+      ...proposed.proposed.map(link => `- [[${link.target}]] — ${link.target_title} (p=${link.link_probability})`),
+    );
+  } else if (proposed.not_judged > 0) {
+    parts.push('', `Jev could not judge ${proposed.not_judged} link candidate(s); nothing was written.`);
+  }
+  return parts.join('\n');
 }

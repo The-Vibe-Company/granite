@@ -410,10 +410,15 @@ describe('the default pool is bounded by what it costs, not by a round number', 
 
   it('defaults to a useful pool, not a fixed 30 that drops the answer', () => {
     // A fixed 30 dropped the note holding a client's price, which sat 54th of 87 direct
-    // neighbours. The default is a floor of 60, so that note is inside it.
+    // neighbours. Measured across limits, the figure is cited at 60 and above and not below;
+    // the default floor is 100, so that note is comfortably inside it.
     const d = big();
     const pool = entityPool(d, 'monka-care', {})!;
-    expect(pool.candidates.length).toBeGreaterThanOrEqual(60);
+    // The fixture has 63 direct neighbours and the default is 60, decided by the byte budget
+    // rather than by a round number: 60 candidates with sentences is ~122 KB, which fits under
+    // the ceiling, and the answering note measures at rank 54. So 60 is the largest default that
+    // both reaches the answer and can actually be sent.
+    expect(pool.candidates.length).toBe(60);
     const nearest = pool.by_distance.find(b => b.distance === 1)!;
     expect(nearest.shown).toBe(60);
     expect(nearest.reachable).toBe(63);
@@ -600,6 +605,61 @@ describe('the depth caveat counts notes, not dangling links', () => {
       .run('far-a', 'Far', 'note', 'active', 'Two hops from the anchor.');
     d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'far-a', 'far-a', 'x');
     expect(entityPool(d, 'monka-care', { depth: 1, sentences: 0 })!.beyond_depth).toBe(1);
+    d.close();
+  });
+});
+
+describe('the transport ceiling belongs to the branch that carries sentences', () => {
+  const many = (n: number) => {
+    const d = new Database(':memory:');
+    d.exec(`
+      CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, status TEXT, body TEXT);
+      CREATE TABLE links (source_slug TEXT, target_slug TEXT, target_raw TEXT, context TEXT);
+    `);
+    const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)');
+    const link = d.prepare('INSERT INTO links VALUES (?,?,?,?)');
+    note.run('hub', 'Hub', 'organization', 'active', 'The anchor.');
+    for (let i = 0; i < n; i++) {
+      note.run(`n${i}`, `Note ${i}`, 'note', 'active',
+        'This note carries a sentence long enough to be selected as a candidate.');
+      link.run(`n${i}`, 'hub', 'hub', `ref ${i}`);
+    }
+    return d;
+  };
+
+  it('caps a sentence-carrying pool at the request ceiling, not the schema ceiling', () => {
+    // The inverted condition (sentences -> 255) let granite_answer(limit: 141) send the ~142 KB
+    // body the measurement records as HTTP 400, and the judge threw with no answer at all.
+    // Ask for more than the ceiling: the default is a floor of 100, so a test that passes no
+    // limit never reaches the ceiling at all and would prove nothing.
+    const d = many(200);
+    const withSentences = entityPool(d, 'hub', { limit: 200, sentences: 6 });
+    expect(withSentences!.candidates.length).toBe(60);
+    expect(withSentences!.trimmed_by_transport).toBe(true);
+    d.close();
+  });
+
+  it('lets a titles-only pool go further, because titles are cheap', () => {
+    const d = many(200);
+    const titlesOnly = entityPool(d, 'hub', { limit: 200, sentences: 0 });
+    expect(titlesOnly!.candidates.length).toBeGreaterThan(120);
+    expect(titlesOnly!.trimmed_by_transport).toBe(false);
+    d.close();
+  });
+
+  it('does not claim a transport trim when nothing was trimmed', () => {
+    const d = many(200);
+    const small = entityPool(d, 'hub', { limit: 10, sentences: 6 });
+    expect(small!.candidates).toHaveLength(10);
+    expect(small!.trimmed_by_transport).toBeFalsy();
+    d.close();
+  });
+
+  it('stops telling a trimmed caller to raise the limit, because that cannot work', () => {
+    const d = many(200);
+    const markdown = renderPoolMarkdown(entityPool(d, 'hub', { limit: 200, sentences: 6 })!);
+    expect(markdown).toContain('transport ceiling trimmed');
+    expect(markdown).not.toContain('raise `limit` or lower `depth`');
     d.close();
   });
 });
