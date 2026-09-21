@@ -37,10 +37,20 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from jev_judge import DEFAULT_MODEL, granite_db, post_questions  # noqa: E402
 
-# Cut points for the absence judgment. Measured absent answers read low, but the
-# boundary is wording-dependent, so it is reported and tunable rather than hidden.
-FOUND = 0.7
-ABSENT = 0.35
+# The absence verdict is derived from the RANKING, not from an absolute question.
+#
+# An absolute "does the pool contain an answer?" Noul was tried first and gave a false
+# negative on a case whose answer was in the pool at rank 3: it read 0.25 while the
+# note that answered scored 1.38 in the ranking. The pattern held across the session -
+# Jev ranks well *within* a set and is unreliable at absolute judgments - so the signal
+# is the best relevance score.
+#
+# Measured on a real vault (relevance runs 0 to 3):
+#   answerable question, answer in the pool   -> top score 1.38
+#   unanswerable control, verified absent      -> top score 0.21
+# A 6.6x separation, so the cut sits between them.
+ANSWERED_AT = 1.0
+ABSENT_BELOW = 0.5
 
 RELEVANCE_LEVELS = [
     "Does not address the question.",
@@ -197,9 +207,11 @@ def main(argv: list[str]) -> int:
                        "score": round(score, 2), "evidence": evidence})
     ranked.sort(key=lambda r: -r["score"])
 
-    if pool_has >= FOUND:
+    # The ranking decides; the pool-level Noul is reported alongside as context.
+    top_score = ranked[0]["score"] if ranked else 0.0
+    if top_score >= ANSWERED_AT:
         verdict = "answered"
-    elif pool_has < ABSENT:
+    elif top_score < ABSENT_BELOW:
         verdict = "absent"
     else:
         verdict = "partial"
@@ -212,8 +224,9 @@ def main(argv: list[str]) -> int:
         "anchor": args.about,
         "pool_size": len(docs),
         "answer_verdict": verdict,
+        "top_relevance": round(top_score, 3),
         "pool_has_answer": round(pool_has, 3),
-        "thresholds": {"found": FOUND, "absent": ABSENT},
+        "thresholds": {"answered_at": ANSWERED_AT, "absent_below": ABSENT_BELOW},
         "results": ranked,
     }
     if args.json:
@@ -221,8 +234,9 @@ def main(argv: list[str]) -> int:
         return 0
 
     print(f'Q: {args.question}')
-    print(f'   {verdict.upper()}  (pool_has_answer={pool_has:.2f}, '
-          f'pool={len(docs)} notes, {response.get("usage", {}).get("input_tokens", "?")} tokens)')
+    print(f'   {verdict.upper()}  (top relevance {top_score:.2f}, '
+          f'pool_has_answer {pool_has:.2f}, pool={len(docs)} notes, '
+          f'{response.get("usage", {}).get("input_tokens", "?")} tokens)')
     if verdict == "absent":
         print('   No candidate states the answer. Reporting absence rather than the')
         print('   least-bad match is the point: a search always returns something.')
