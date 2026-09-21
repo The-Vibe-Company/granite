@@ -1,0 +1,32 @@
+skills/ship-pr-dev/SKILL.md
+  h_ecee222750141d 1-133
+skills/ship-pr-dev/references/agent-routing.md
+  h_ecee222750141d 1-123
+skills/ship-pr-dev/references/pr-template.md
+  h_ecee222750141d 1-77
+skills/ship-pr-dev/references/readiness-gates.md
+  h_ecee222750141d 1-94
+skills/ship-pr-dev/references/review-gate.md
+  h_ecee222750141d 1-62
+skills/ship-pr-dev/references/workflow.md
+  h_ecee222750141d 1-58
+skills/ship-pr-dev/scripts/.gitignore
+  h_ecee222750141d 1-2
+skills/ship-pr-dev/scripts/collect_ship_context.py
+  h_ecee222750141d 1-217
+skills/ship-pr-dev/scripts/prepare_ship_run.py
+  h_ecee222750141d 1-91
+skills/ship-pr-dev/scripts/test_collect_ship_context.py
+  h_ecee222750141d 1-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a687c8c312afb041bda6b63c1ce52959e7b57acd",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
