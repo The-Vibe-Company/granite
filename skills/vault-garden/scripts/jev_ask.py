@@ -125,7 +125,9 @@ def main(argv: list[str]) -> int:
         if not row:
             print(json.dumps({"status": "error", "reason": f"no note {args.about}"}, indent=2))
             return 1
-        pool = [s for s, _ in neighbours(con, args.about, args.depth)] + [args.about]
+        # The anchor goes FIRST: appended last it was truncated away by --limit, so the
+        # note the caller anchored on was never judged.
+        pool = [args.about] + [s for s, _ in neighbours(con, args.about, args.depth)]
     else:
         # No anchor: fall back to the whole vault, which is why --about matters for cost.
         pool = [r[0] for r in con.execute("SELECT slug FROM notes WHERE length(body)>800")]

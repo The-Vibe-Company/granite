@@ -110,7 +110,24 @@ def main(argv: list[str]) -> int:
         }, indent=2))
         return 0
     payload = json.loads(raw)
+    # A failed `granite pool` call returns {"success": false, "error": ...}. Reading it as
+    # an empty pool reported "absent", so "the command broke" looked identical to "the
+    # vault has no answer" -- the two must never be confusable.
+    if isinstance(payload, dict) and payload.get("success") is False:
+        print(json.dumps({
+            "status": "error",
+            "answer_verdict": None,
+            "reason": payload.get("error") or "granite pool reported failure",
+        }, indent=2, sort_keys=True))
+        return 1
     pool = payload.get("data", payload)
+    if not isinstance(pool, dict) or "candidates" not in pool:
+        print(json.dumps({
+            "status": "error",
+            "answer_verdict": None,
+            "reason": "unrecognised pool payload; expected the output of `granite pool --json`",
+        }, indent=2, sort_keys=True))
+        return 1
     candidates = pool.get("candidates") or []
     if not candidates:
         print(json.dumps({

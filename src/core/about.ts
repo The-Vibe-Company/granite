@@ -142,7 +142,10 @@ export interface EntityPool {
  */
 export function candidateSentences(body: string, limit = 6): string[] {
   const text = (body ?? '')
-    .replace(/\A---\n[\s\S]*?\n---\s*/, ' ')
+    // `\A` is not a JavaScript anchor -- it matches a literal "A", so this replace was
+    // dead code and frontmatter leaked into the pool as a candidate sentence. `^` with
+    // the `m` flag anchors at the start of the string for the leading document.
+    .replace(/^---\r?\n[\s\S]*?\n---\s*/, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/^#{1,6}\s.*$/gm, ' ');
   const out: string[] = [];

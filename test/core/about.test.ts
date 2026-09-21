@@ -135,21 +135,84 @@ describe('entityPool', () => {
 });
 
 describe('candidateSentences', () => {
-  it('skips frontmatter, code fences and headings', () => {
+  it('strips a realistic frontmatter block', () => {
+    // The previous fixture used `id: abc`, which is too short to survive the minimum
+    // sentence length, so the test passed while the frontmatter strip was dead code.
+    // Real Granite frontmatter carries a UUID and a long title, both of which leak into
+    // the pool as "sentences" if the strip does not work.
     const body = [
-      '---', 'id: abc', 'sourceNotionId: deadbeef', '---',
+      '---',
+      'id: 3f2e6e3a-f95e-4ca5-ab72-fd86212b0aff',
+      'sourceNotionId: 357324e51ac2813cb372e77bad7dcb26',
+      'sourceDiscussionTitle: Weekly sync with the client about the migration plan',
+      'tags:',
+      '  - client',
+      '---',
+      'Monka migre son infrastructure vers Scaleway en juin 2026 pour la conformité HDS.',
+    ].join('\n');
+    const out = candidateSentences(body, 6);
+    expect(out).toEqual(['Monka migre son infrastructure vers Scaleway en juin 2026 pour la conformité HDS.']);
+    expect(out.join(' ')).not.toContain('sourceNotionId');
+    expect(out.join(' ')).not.toContain('357324e51ac2813cb372e77bad7dcb26');
+  });
+
+  it('strips frontmatter even without a trailing newline after the delimiter', () => {
+    const body = '---\r\nid: abc\r\ntitle: A reasonably long document title here\r\n---\nSecond sentence that is long enough to qualify as a candidate.';
+    const out = candidateSentences(body, 6);
+    expect(out.join(' ')).not.toContain('title:');
+    expect(out[0]).toContain('Second sentence');
+  });
+
+  it('drops code fences and headings', () => {
+    const body = [
       '## Summary',
       '```js', 'const notASentence = true;', '```',
       'Monka migre son infrastructure vers Scaleway en juin 2026 pour la conformité HDS.',
     ].join('\n');
     const out = candidateSentences(body, 6);
+    expect(out.join(' ')).not.toContain('notASentence');
     expect(out).toHaveLength(1);
-    expect(out[0]).toContain('Scaleway');
   });
 
   it('respects the limit and drops fragments too short to carry meaning', () => {
     const body = 'Ok.\n' + 'Cette phrase est suffisamment longue pour être un candidat sérieux.\n'.repeat(20);
     const out = candidateSentences(body, 3);
     expect(out).toHaveLength(3);
+  });
+});
+
+describe('pool ordering and bounds', () => {
+  it('includes a distance-2 note so the depth walk is actually exercised', () => {
+    // The fixture previously contained no second-hop note, so a broken depth walk was
+    // invisible. far-a is only reachable through person-a.
+    const d = db();
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)').run(
+      'far-a', 'Second hop note', 'note', 'active',
+      'This note is two hops from the anchor and must appear at distance 2.');
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'far-a', 'far-a', 'x');
+    const pool = entityPool(d, 'monka-care', { depth: 2, limit: 50 })!;
+    const far = pool.candidates.find(c => c.slug === 'far-a');
+    expect(far?.distance).toBe(2);
+    d.close();
+  });
+
+  it('excludes a distance-2 note when depth is 1', () => {
+    const d = db();
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)').run(
+      'far-a', 'Second hop note', 'note', 'active',
+      'This note is two hops from the anchor and must not appear at depth 1.');
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'far-a', 'far-a', 'x');
+    const pool = entityPool(d, 'monka-care', { depth: 1, limit: 50 })!;
+    expect(pool.candidates.map(c => c.slug)).not.toContain('far-a');
+    d.close();
+  });
+
+  it('terminates on a cycle instead of looping', () => {
+    const d = db();
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('person-a', 'meeting-a', 'meeting-a', 'cycle');
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)').run('meeting-a', 'person-a', 'person-a', 'cycle');
+    const pool = entityPool(d, 'monka-care', { depth: 5, limit: 50 })!;
+    expect(pool.candidates.every(c => c.distance <= 5)).toBe(true);
+    d.close();
   });
 });

@@ -55,6 +55,29 @@ import {
 } from './commands/sync.js';
 import { GRANITE_VERSION } from './version.js';
 
+/**
+ * Parse a numeric flag and fail loudly on junk.
+ *
+ * `parseInt('abc', 10)` is NaN, and `Math.max(1, NaN)` is NaN, so a typo silently
+ * produced a pool of zero candidates and a cheerful "nothing is reachable" instead of
+ * an error the caller could act on.
+ */
+function positiveInt(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new InvalidArgumentError(`Expected a positive integer, got "${value}".`);
+  }
+  return parsed;
+}
+
+function nonNegativeInt(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new InvalidArgumentError(`Expected a non-negative integer, got "${value}".`);
+  }
+  return parsed;
+}
+
 const program = new Command();
 
 program
@@ -191,9 +214,9 @@ program
   .command('pool <slug>')
   .description('Emit the bounded candidate set a semantic judge would decide on — deterministic, no model')
   .option('--json', 'Output as JSON (agent-friendly)')
-  .option('--depth <n>', 'Graph hops to walk (default 2)', (v) => parseInt(v, 10))
-  .option('--limit <n>', 'Maximum candidates (default 30)', (v) => parseInt(v, 10))
-  .option('--sentences <n>', 'Candidate sentences per note, 0 for titles only (default 6)', (v) => parseInt(v, 10))
+  .option('--depth <n>', 'Graph hops to walk (default 2)', positiveInt)
+  .option('--limit <n>', 'Maximum candidates (default 30)', positiveInt)
+  .option('--sentences <n>', 'Candidate sentences per note, 0 for titles only (default 6)', nonNegativeInt)
   .action((slug: string, options: { json?: boolean; depth?: number; limit?: number; sentences?: number }) => {
     poolCommand(slug, options);
   });
