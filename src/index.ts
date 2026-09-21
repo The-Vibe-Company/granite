@@ -8,6 +8,7 @@ import { searchCommand } from './commands/search.js';
 import { factsCommand } from './commands/facts.js';
 import { entitiesCommand } from './commands/entities.js';
 import { aboutCommand } from './commands/about.js';
+import { poolCommand } from './commands/pool.js';
 import { backlinksCommand } from './commands/backlinks.js';
 import { suggestLinksCommand } from './commands/suggest-links.js';
 import { recommendCommand } from './commands/recommend.js';
@@ -184,6 +185,17 @@ program
       outgoing: options.outgoing,
       types: options.type ? options.type.split(',').map(t => t.trim()).filter(Boolean) : undefined,
     });
+  });
+
+program
+  .command('pool <slug>')
+  .description('Emit the bounded candidate set a semantic judge would decide on — deterministic, no model')
+  .option('--json', 'Output as JSON (agent-friendly)')
+  .option('--depth <n>', 'Graph hops to walk (default 2)', (v) => parseInt(v, 10))
+  .option('--limit <n>', 'Maximum candidates (default 30)', (v) => parseInt(v, 10))
+  .option('--sentences <n>', 'Candidate sentences per note, 0 for titles only (default 6)', (v) => parseInt(v, 10))
+  .action((slug: string, options: { json?: boolean; depth?: number; limit?: number; sentences?: number }) => {
+    poolCommand(slug, options);
   });
 
 // ─── Compile ──────────────────────────────────────────────────────────

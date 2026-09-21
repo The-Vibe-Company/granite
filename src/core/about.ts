@@ -114,3 +114,122 @@ export function aboutEntity(db: Database.Database, slug: string): AboutEntity | 
     counts: { incoming: count(incoming), outgoing: count(outgoing) },
   };
 }
+
+export interface PoolEntry {
+  slug: string;
+  title: string;
+  type: string;
+  /** Graph distance from the anchor. 1 = directly linked. */
+  distance: number;
+  /** Candidate sentences, or null when the caller asked for titles only. */
+  sentences: string[] | null;
+}
+
+export interface EntityPool {
+  anchor: string;
+  anchor_title: string;
+  /** Total notes reachable within the depth, before the limit was applied. */
+  reachable: number;
+  /** Notes actually returned, nearest first. */
+  candidates: PoolEntry[];
+}
+
+/**
+ * Candidate sentences, chosen deterministically so recall stays in code.
+ *
+ * Frontmatter, fenced code and markdown markers are stripped: a citation marker or a
+ * `sourceNotionId` line is not a sentence that can answer anything.
+ */
+export function candidateSentences(body: string, limit = 6): string[] {
+  const text = (body ?? '')
+    .replace(/\A---\n[\s\S]*?\n---\s*/, ' ')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,6}\s.*$/gm, ' ');
+  const out: string[] = [];
+  for (const raw of text.split(/(?<=[.!?])\s+|\n+/)) {
+    const line = raw
+      .replace(/\*\*|__|`/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^\s*[-*|\s]+/, '')
+      .trim();
+    if (line.length >= 30 && line.length <= 400) out.push(line);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Build a bounded, judge-ready candidate set around an anchor.
+ *
+ * This is the deterministic half of semantic retrieval: it decides *what is worth
+ * judging*, and a model decides which of those actually answers a question. Keeping the
+ * two apart is what makes the model's job a selection rather than a search — and a
+ * selection is the judgment it is measurably good at.
+ *
+ * Ordering is by **graph distance only**. An earlier version ordered by lexical overlap
+ * with the question, which reintroduced the exact failure this exists to fix: on a real
+ * vault the note holding the answer was one hop away and shared no vocabulary with the
+ * English question, so a lexical pre-rank pushed it out of the pool and the answer was
+ * reported absent.
+ */
+export function entityPool(
+  db: Database.Database,
+  anchor: string,
+  options: { depth?: number; limit?: number; sentences?: number } = {},
+): EntityPool | undefined {
+  const depth = Math.max(1, options.depth ?? 2);
+  const limit = Math.max(1, options.limit ?? 30);
+  const sentenceCount = options.sentences ?? 6;
+
+  const note = db
+    .prepare('SELECT title FROM notes WHERE slug = ?')
+    .get(anchor) as { title: string } | undefined;
+  if (!note) return undefined;
+
+  const distance = new Map<string, number>();
+  let frontier = new Set<string>([anchor]);
+  for (let hop = 1; hop <= depth; hop++) {
+    const next = new Set<string>();
+    for (const slug of frontier) {
+      for (const row of db
+        .prepare('SELECT target_slug AS s FROM links WHERE source_slug = ? AND target_slug IS NOT NULL')
+        .all(slug) as Array<{ s: string }>) {
+        next.add(row.s);
+      }
+      for (const row of db
+        .prepare('SELECT source_slug AS s FROM links WHERE target_slug = ?')
+        .all(slug) as Array<{ s: string }>) {
+        next.add(row.s);
+      }
+    }
+    next.delete(anchor);
+    for (const slug of next) if (!distance.has(slug)) distance.set(slug, hop);
+    frontier = next;
+  }
+
+  const ordered = [...distance.entries()]
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit);
+
+  const candidates: PoolEntry[] = [];
+  for (const [slug, hop] of ordered) {
+    const row = db
+      .prepare('SELECT title, type, body FROM notes WHERE slug = ?')
+      .get(slug) as { title: string; type: string; body: string } | undefined;
+    if (!row) continue; // dangling link target: not a real note
+    candidates.push({
+      slug,
+      title: row.title ?? slug,
+      type: row.type ?? 'unknown',
+      distance: hop,
+      sentences: sentenceCount > 0 ? candidateSentences(row.body, sentenceCount) : null,
+    });
+  }
+
+  return {
+    anchor,
+    anchor_title: note.title ?? anchor,
+    reachable: distance.size,
+    candidates,
+  };
+}

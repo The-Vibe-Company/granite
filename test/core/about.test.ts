@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { aboutEntity } from '../../src/core/about.js';
+import { aboutEntity, candidateSentences, entityPool } from '../../src/core/about.js';
 
 /**
  * Minimal stand-in for the index: `aboutEntity` is a read of the graph, so the test
@@ -9,14 +9,18 @@ import { aboutEntity } from '../../src/core/about.js';
 function db(): Database.Database {
   const d = new Database(':memory:');
   d.exec(`
-    CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, status TEXT);
+    CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, status TEXT, body TEXT);
     CREATE TABLE links (source_slug TEXT, target_slug TEXT, target_raw TEXT, context TEXT);
   `);
-  const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?)');
-  note.run('monka-care', 'Monka.care', 'organization', 'active');
-  note.run('meeting-a', 'Kickoff with Monka', 'meeting', 'active');
-  note.run('person-a', 'Étienne Rubi', 'person', 'active');
-  note.run('synthesis-a', 'HDS synthesis', 'synthesis', 'active');
+  const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)');
+  note.run('monka-care', 'Monka.care', 'organization', 'active',
+    'Monka.care est une plateforme de santé qui opère en France depuis 2025.');
+  note.run('meeting-a', 'Kickoff with Monka', 'meeting', 'active',
+    'Kickoff meeting for the Monka engagement covering scope and milestones.');
+  note.run('person-a', 'Étienne Rubi', 'person', 'active',
+    'Étienne Rubi est cofondateur de Monka.care et sponsor exécutif du projet.');
+  note.run('synthesis-a', 'HDS synthesis', 'synthesis', 'active',
+    'Synthesis of the hosting compliance work for the Monka platform.');
   const link = d.prepare('INSERT INTO links VALUES (?,?,?,?)');
   link.run('meeting-a', 'monka-care', 'Monka.care', 'Kickoff with [[Monka.care]]');
   link.run('person-a', 'monka-care', 'Monka.care', 'cofounder of [[Monka.care]]');
@@ -85,5 +89,67 @@ describe('aboutEntity', () => {
     expect(result.counts.incoming).toBe(0);
     expect(result.counts.outgoing).toBe(1);
     d.close();
+  });
+});
+
+describe('entityPool', () => {
+  it('orders candidates by graph distance, nearest first', () => {
+    // Distance is the only ordering signal. A lexical pre-rank was tried and it dropped
+    // the note holding the answer because the question was in another language.
+    const d = db();
+    const result = entityPool(d, 'monka-care', { limit: 10 })!;
+    expect(result.candidates[0].distance).toBe(1);
+    const distances = result.candidates.map(c => c.distance);
+    expect([...distances].sort((a, b) => a - b)).toEqual(distances);
+    d.close();
+  });
+
+  it('reports how many notes were reachable before the limit', () => {
+    const d = db();
+    const result = entityPool(d, 'monka-care', { limit: 1 })!;
+    expect(result.reachable).toBeGreaterThan(result.candidates.length);
+    expect(result.candidates).toHaveLength(1);
+    d.close();
+  });
+
+  it('walks the requested depth and excludes the anchor from its own pool', () => {
+    const d = db();
+    const oneHop = entityPool(d, 'monka-care', { depth: 1, limit: 50 })!;
+    expect(oneHop.candidates.every(c => c.distance === 1)).toBe(true);
+    expect(oneHop.candidates.map(c => c.slug)).not.toContain('monka-care');
+    d.close();
+  });
+
+  it('can return titles only when sentences are not wanted', () => {
+    const d = db();
+    const result = entityPool(d, 'monka-care', { sentences: 0 })!;
+    expect(result.candidates.every(c => c.sentences === null)).toBe(true);
+    d.close();
+  });
+
+  it('returns undefined for an anchor the vault does not have', () => {
+    const d = db();
+    expect(entityPool(d, 'nope')).toBeUndefined();
+    d.close();
+  });
+});
+
+describe('candidateSentences', () => {
+  it('skips frontmatter, code fences and headings', () => {
+    const body = [
+      '---', 'id: abc', 'sourceNotionId: deadbeef', '---',
+      '## Summary',
+      '```js', 'const notASentence = true;', '```',
+      'Monka migre son infrastructure vers Scaleway en juin 2026 pour la conformité HDS.',
+    ].join('\n');
+    const out = candidateSentences(body, 6);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('Scaleway');
+  });
+
+  it('respects the limit and drops fragments too short to carry meaning', () => {
+    const body = 'Ok.\n' + 'Cette phrase est suffisamment longue pour être un candidat sérieux.\n'.repeat(20);
+    const out = candidateSentences(body, 3);
+    expect(out).toHaveLength(3);
   });
 });
