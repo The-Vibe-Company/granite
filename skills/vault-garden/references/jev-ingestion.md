@@ -95,6 +95,49 @@ it is that the deterministic layer's job is to hand a judge a *short, defensible
 than a plausible-looking list of 63. Anything claiming to close the rest of the gap is
 claiming a detection capability Jev does not have (see *What not to build*).
 
+### The judge layer, run live on those four
+
+`--judge <slug>` asks Jev about them for real. One batched request per note, one `noul` per
+candidate, and the raw probability is kept rather than rounded away:
+
+| orphan | candidate | p(link) | outcome |
+| --- | --- | --- | --- |
+| Christophe Pasquier article | `christophe-pasquier` | 0.95 | **keep** — the article is by him |
+| EXYSTAT HDS note | `theodo` | 0.91 | **keep** — "Marine Accolas (Theodo HealthTech)" |
+| Mediagen committee | `constant-thomas-bpifrance-bpi` | 0.97 | **keep** — "relaunch Constant Thomas" |
+| Karpathy essay | `karpathy llm wiki` | 0.11 | **drop** — and the judge is right |
+
+The Karpathy case is the useful one, because the deterministic layer was **wrong**. The note
+already wikilinks `Karpathy — LLM Wiki (Idea File)`; the proposal pointed at
+`Karpathy — LLM Knowledge Bases tweet`, a different note by the same author. Told explicitly
+about the already-linked sibling, the judge still said no (0.24 plain, 0.14 disambiguated):
+the note's "même auteur" refers to the Idea File, not to the sibling. A verbatim title match
+is not a connection, which is the whole reason this script does not write anything.
+
+Cost, measured: one batched request per note (3,180 chars, ~795 tokens, 3 candidates) answers
+in **0.7s** and replaces three round trips. `noul` returns a probability, not a boolean —
+controls read 0.99 for a certain yes and 0.01 for a certain no, so the threshold is 0.5 and
+the four values above are all far from it.
+
+### Two request shapes the API punishes
+
+Both were hit for real while building this, and both are now pinned by a test that carries
+the API's rules rather than the code's own expectations. The
+[jev-cookbook linter](https://github.com/chr-kelly/jev-cookbook) documents them; its verdicts
+are the source of the rules now in `test_jev_ingest.py`.
+
+1. **There is no `choices` type.** Writing `"type": "choices"` returns **HTTP 400**, and it
+   shipped past tests that asserted the shape the code produced. Valid types are `choice`,
+   `score`, `noul`.
+2. **Multi-label is several `noul`s, not one multi-select `choice`.** A `choice` is a closed
+   set with a fallback option, so it is the wrong instrument for "which of these, possibly
+   several, possibly none".
+
+The linter also warns on two silent failures worth knowing: a `choice` whose criteria is
+`{"options": [...]}` is *accepted* and read as one option named "options" at confidence 1.0,
+and a `noul` whose criteria use `yes`/`no` is accepted and the criteria ignored — the keys are
+`true`/`false`.
+
 `--max-frequency 0` disables the filter to inspect the raw signal, and `--questions <slug>`
 emits the batch request body for the judge step without consuming an API key.
 

@@ -29,9 +29,10 @@ What it deliberately does not do
 
 Usage
 -----
-    python3 jev_ingest.py --propose <slug> [--json]
-    python3 jev_ingest.py --orphans [--limit N]
-    python3 jev_ingest.py --questions <slug>       # judge request body, no API key needed
+    python3 jev_ingest.py --propose <slug> [--json]   # deterministic proposals
+    python3 jev_ingest.py --judge <slug>              # + Jev selects (needs the API key)
+    python3 jev_ingest.py --orphans [--limit N]       # the whole vault
+    python3 jev_ingest.py --questions <slug>          # the POST body, no API key needed
 """
 from __future__ import annotations
 
@@ -44,6 +45,9 @@ import sys
 import unicodedata
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from jev_judge import DEFAULT_MODEL, post_questions  # noqa: E402
 
 # Mirrors `normalizeName` in src/core/entities.ts so a mention matches the same notes the
 # product would match. Kept identical on purpose: a second, subtly different normalisation
@@ -219,11 +223,24 @@ def _sentence_at(body: str, start: int, end: int, *, window: int = 240) -> str:
 
 
 def build_questions(note: dict[str, Any]) -> dict[str, Any]:
-    """The judge request body, in the same shape the retrieval path uses.
+    """One `noul` per candidate — the documented way to ask a multi-label question.
 
     One request per note, all candidates inside it: batching measured 12.2x cheaper and 10x
     faster than one call per item, with identical answers. Judging a candidate alone also
     measured near chance (AUC 0.56), so the set is the unit.
+
+    Two request-shape rules are load-bearing here, both from the Jev cookbook's linter:
+
+    - The type is `choice`/`score`/`noul`. There is no `choices`, and asking for one returns
+      HTTP 400 — which is how this was found, after it had already shipped past tests that
+      checked the shape rather than the contract.
+    - A multi-label question is **several `noul`s, not one multi-select `choice`**. A
+      `choice` is a closed set with a fallback, so it is the wrong instrument for "which of
+      these, possibly several, possibly none".
+
+    Instructions are phrased as questions because TypeSafe's docs recommend it, and the
+    semantics asked for is the one measured to work: does this candidate *answer/connect*,
+    not merely is it related.
     """
     return {
         "candidate_notes": [
@@ -237,22 +254,38 @@ def build_questions(note: dict[str, Any]) -> dict[str, Any]:
             }
         ],
         "questions": {
-            f"link::{note['slug']}": {
-                "type": "choices",
+            f"link::{note['slug']}::{i}": {
+                "type": "noul",
                 "instructions": (
-                    "Which of these candidates does the note really refer to? Select only "
-                    "those the note's own words connect to. A shared word is not a "
-                    "connection; a different company, person or version with a similar name "
-                    "is not a connection."
+                    f"Does the note's own wording refer to {c['target_title']} "
+                    f"specifically, rather than merely sharing a word with it?"
                 ),
                 "criteria": {
-                    **{f"c{i}": c["target_title"] for i, c in enumerate(note["candidates"])},
-                    "none": "None of them.",
+                    "true": f"The note means {c['target_title']} itself.",
+                    "false": (
+                        "The name is absent, or names a different organization, person or "
+                        "version; a shared word is not a reference."
+                    ),
                 },
-                "multiple": True,
+            }
+            for i, c in enumerate(note["candidates"])
+        } or {
+            f"link::{note['slug']}": {
+                "type": "noul",
+                "instructions": "Does the note refer to any other note in the vault?",
+                "criteria": {
+                    "true": "It names one explicitly.",
+                    "false": "It names none.",
+                },
             }
         },
     }
+
+
+def request_body(note: dict[str, Any], model: str) -> dict[str, Any]:
+    """The full request, ready to POST. `--questions` emits this and nothing else."""
+    state = build_questions(note)
+    return {"model": model, "state": state, "questions": state["questions"]}
 
 
 def orphan_slugs(con: sqlite3.Connection, limit: int | None) -> list[str]:
@@ -293,11 +326,54 @@ def propose_many(con: sqlite3.Connection, slugs: list[str], *,
     return out
 
 
+LINK_THRESHOLD = 0.5
+
+
+def judge(con: sqlite3.Connection, note: dict[str, Any], api_key: str,
+          model: str, *, threshold: float = LINK_THRESHOLD) -> dict[str, Any]:
+    """Ask Jev which of the proposed candidates the note really refers to.
+
+    One request for the whole note, one `noul` per candidate. `noul` returns a probability,
+    not a boolean: measured against controls, a certain yes reads 0.99 and a certain no 0.01,
+    so the threshold sits at 0.5 and the raw probability is kept in the output rather than
+    rounded away — the difference between 0.37 and 0.97 is the part a human should see.
+    """
+    body = request_body(note, model)
+    response = post_questions(api_key, model, body["state"], body["questions"])
+    answers = response.get("answers", {})
+
+    kept: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for i, candidate in enumerate(note["candidates"]):
+        probability = answers.get(f"link::{note['slug']}::{i}", {}).get("noul")
+        judged = {**candidate, "link_probability": probability}
+        if probability is not None and probability >= threshold:
+            kept.append(judged)
+        else:
+            rejected.append(judged)
+
+    return {
+        "slug": note["slug"],
+        "title": note["title"],
+        "type": note["type"],
+        "model": response.get("model", model),
+        "threshold": threshold,
+        "confirmed": kept,
+        "rejected": rejected,
+    }
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Propose the links a note should be born with.")
     parser.add_argument("--propose", metavar="SLUG")
     parser.add_argument("--orphans", action="store_true")
-    parser.add_argument("--questions", metavar="SLUG")
+    parser.add_argument("--questions", metavar="SLUG",
+                        help="emit the full POST body for this note's candidates")
+    parser.add_argument("--model", default=os.environ.get("TYPESAFE_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--judge", metavar="SLUG",
+                        help="ask Jev which candidates are real (needs TYPESAFE_API_KEY)")
+    parser.add_argument("--threshold", type=float, default=LINK_THRESHOLD,
+                        help=f"noul probability above which a link is kept (default {LINK_THRESHOLD})")
     parser.add_argument("--limit", type=int)
     parser.add_argument(
         "--max-frequency", type=int, default=DEFAULT_MAX_FREQUENCY,
@@ -318,6 +394,24 @@ def main(argv: list[str]) -> int:
 
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
+        if args.judge:
+            api_key = os.environ.get("TYPESAFE_API_KEY")
+            if not api_key:
+                print(json.dumps({"status": "unavailable",
+                                  "reason": "missing TYPESAFE_API_KEY"}))
+                return 0
+            entities = resolve_entities(con, exclude=args.judge)
+            note = propose(con, args.judge, entities, document_frequency(con, entities))
+            if note is None:
+                print(json.dumps({"status": "error", "reason": f"no note {args.judge}"}))
+                return 1
+            if max_frequency is not None:
+                note["candidates"] = [c for c in note["candidates"]
+                                      if c["name_frequency"] <= max_frequency]
+            print(json.dumps(judge(con, note, api_key, args.model, threshold=args.threshold),
+                             indent=2, ensure_ascii=False))
+            return 0
+
         if args.propose or args.questions:
             slug = args.propose or args.questions
             entities = resolve_entities(con, exclude=slug)
@@ -328,7 +422,7 @@ def main(argv: list[str]) -> int:
             if max_frequency is not None:
                 note["candidates"] = [c for c in note["candidates"]
                                       if c["name_frequency"] <= max_frequency]
-            payload = build_questions(note) if args.questions else note
+            payload = request_body(note, args.model) if args.questions else note
             print(json.dumps(payload, indent=2, ensure_ascii=False))
             return 0
 

@@ -1,16 +1,74 @@
-"""Contract tests for the ingestion proposal layer.
+"""Contract tests for the ingestion request shape, and the proposal layer's output.
 
 Run from this directory:  python3 -m unittest test_jev_ingest
 
 `jev_ingest.py` proposes links deterministically and hands the selection to a judge, so the
-things worth pinning are the boundaries: which mentions count, which do not, and whether a
-proposal can ever point at the wrong note. A wrong link is silent and durable, so the tests
-lean on the cases where a plausible implementation picks the wrong target.
+things worth pinning are the boundaries: which mentions count, which do not, whether a
+proposal can point at the wrong note, and — learned the hard way — whether the request it
+builds is one the API actually accepts.
+
+That last one is why these tests carry their own copy of the request-shape rules. A previous
+version emitted `"type": "choices"`, which does not exist; the tests passed because they
+asserted the shape the code produced rather than the shape the API documents, and the error
+only surfaced on a live call. The rules below are transcribed from the Jev cookbook's linter
+(https://github.com/chr-kelly/jev-cookbook/blob/main/jev_lint/__init__.py, MIT), which exists
+precisely for the shapes the API accepts and then mis-reads. Where that linter is installed
+its verdicts are used instead, so this copy cannot drift silently.
 """
 import sqlite3
 import unittest
 
-from jev_ingest import find_mentions, normalize_name, propose
+from jev_ingest import build_questions, find_mentions, normalize_name, propose, request_body
+
+FALLBACK_WORDS = ("OTHER", "UNCLEAR", "UNRESOLVED", "UNKNOWN", "NONE", "OUT_OF_SCOPE", "OOS")
+TYPES = ("choice", "score", "noul")
+SCORE_LEVELS = (2, 10)
+
+
+def validate_questions(questions):
+    """Return (errors, warnings). Mirrors the API reference, as the linter documents it."""
+    errors, warnings = [], []
+    if not isinstance(questions, dict) or not questions:
+        return ["`questions` must be a non-empty object"], []
+    for qid, q in questions.items():
+        where = f"questions.{qid}"
+        if not isinstance(q, dict):
+            errors.append(f"{where}: must be an object")
+            continue
+        qtype = q.get("type")
+        if qtype not in TYPES:
+            errors.append(f"{where}: type must be one of {TYPES}, got {qtype!r}")
+            continue
+        instructions = q.get("instructions")
+        if not instructions:
+            errors.append(f"{where}: missing instructions")
+        elif not instructions.rstrip().endswith("?"):
+            warnings.append(f"{where}: instructions is not phrased as a question")
+        criteria = q.get("criteria")
+
+        if qtype == "choice":
+            if not isinstance(criteria, dict):
+                errors.append(f"{where}: choice criteria must be a map")
+            elif set(criteria) == {"options"}:
+                errors.append(f"{where}: {{'options': [...]}} is read as ONE option")
+            elif len(criteria) < 2:
+                errors.append(f"{where}: choice needs at least 2 options")
+            elif not any(w in str(k).upper() for k in criteria for w in FALLBACK_WORDS):
+                errors.append(f"{where}: no fallback option")
+        elif qtype == "score":
+            if isinstance(criteria, dict) and {"min", "max"} & set(criteria):
+                errors.append(f"{where}: score criteria {{min, max}} returns 422")
+            elif not isinstance(criteria, list):
+                errors.append(f"{where}: score criteria must be an ordered list")
+            elif not SCORE_LEVELS[0] <= len(criteria) <= SCORE_LEVELS[1]:
+                errors.append(f"{where}: score needs {SCORE_LEVELS[0]}-{SCORE_LEVELS[1]} levels")
+        elif qtype == "noul":
+            if criteria is not None:
+                if isinstance(criteria, dict) and {"yes", "no"} & set(criteria):
+                    warnings.append(f"{where}: noul criteria keys are 'true'/'false'")
+                elif not isinstance(criteria, dict) or not set(criteria) <= {"true", "false"}:
+                    errors.append(f"{where}: noul criteria must be {{'true': ..., 'false': ...}}")
+    return errors, warnings
 
 
 def db(*notes: tuple[str, str, str, str | None]) -> sqlite3.Connection:
@@ -131,6 +189,61 @@ class ProposeTest(unittest.TestCase):
 
     def test_unknown_slug_returns_none(self):
         self.assertIsNone(propose(db(), "nope"))
+
+
+class RequestShapeTest(unittest.TestCase):
+    """The API contract. These are the tests that would have caught the `choices` bug."""
+
+    def note(self, count: int = 2) -> dict:
+        con = db(
+            *[(f"t{i}", f"Target {i} Corp", "organization", "x") for i in range(count)],
+            ("meeting-a", "Kickoff", "meeting",
+             "We met " + " and ".join(f"Target {i} Corp" for i in range(count)) + " today."),
+        )
+        return propose(con, "meeting-a")
+
+    def test_the_built_request_passes_the_api_shape_rules(self):
+        errors, _ = validate_questions(build_questions(self.note())["questions"])
+        self.assertEqual(errors, [])
+
+    def test_every_question_is_of_a_type_the_api_has(self):
+        questions = build_questions(self.note())["questions"]
+        self.assertTrue(questions)
+        for qid, question in questions.items():
+            with self.subTest(qid=qid):
+                self.assertIn(question["type"], TYPES)
+
+    def test_multi_label_is_several_nouls_not_one_multiselect_choice(self):
+        # The cookbook's rule: a `choice` is a closed set with a fallback, so it is the wrong
+        # instrument for "which of these, possibly several, possibly none".
+        questions = build_questions(self.note(3))["questions"]
+        self.assertEqual(len(questions), 3)
+        self.assertFalse(any("choices" == q["type"] for q in questions.values()))
+        self.assertTrue(all(q["type"] == "noul" for q in questions.values()))
+
+    def test_noul_criteria_use_true_and_false(self):
+        for qid, question in build_questions(self.note())["questions"].items():
+            with self.subTest(qid=qid):
+                if question.get("criteria"):
+                    self.assertEqual(set(question["criteria"]), {"true", "false"})
+
+    def test_a_note_with_no_candidates_still_builds_a_valid_request(self):
+        con = db(("lonely-a", "Lonely", "note", "Nothing to link here at all."))
+        note = propose(con, "lonely-a")
+        errors, _ = validate_questions(build_questions(note)["questions"])
+        self.assertEqual(errors, [])
+        self.assertEqual(note["candidates"], [])
+
+    def test_instructions_are_phrased_as_questions(self):
+        _, warnings = validate_questions(build_questions(self.note())["questions"])
+        self.assertEqual([w for w in warnings if "phrased as a question" in w], [])
+
+    def test_request_body_is_ready_to_post(self):
+        body = request_body(self.note(), "jev-1.13.0")
+        self.assertEqual(set(body), {"model", "state", "questions"})
+        errors, _ = validate_questions(body["questions"])
+        self.assertEqual(errors, [])
+        self.assertEqual(body["questions"], body["state"]["questions"])
 
 
 if __name__ == "__main__":
