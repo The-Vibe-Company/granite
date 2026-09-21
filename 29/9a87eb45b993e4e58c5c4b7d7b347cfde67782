@@ -1,0 +1,18 @@
+CLAUDE.md
+  h_ecee222750141d 45-67
+skills/granite-lint/SKILL.md
+  h_ecee222750141d 71-72,75-81,83-85
+src/commands/facts.ts
+  h_ecee222750141d 145-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "299a87eb45b993e4e58c5c4b7d7b347cfde67782",
+  "prompts": {},
+  "humans": {
+    "h_ecee222750141d": {
+      "author": "StanGirard <stan@quivr.app>"
+    }
+  }
+}
