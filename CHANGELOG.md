@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.0...granite-mem-v0.2.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **pool:** a default large enough to hold the answer, and the request ceiling ([#84](https://github.com/The-Vibe-Company/granite/issues/84)) ([7da8f86](https://github.com/The-Vibe-Company/granite/commit/7da8f8699419412bd1e03fa861a7f42cb3b7f6ad))
+
 ## [0.2.0](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.24...granite-mem-v0.2.0) (2026-09-21)
 
 
