@@ -121,11 +121,3 @@ npx tsx src/index.ts <command>
 ## Testing
 
 Tests live in `test/core/` mirroring `src/core/`. A fixture vault at `test-vault/` provides test data. Tests use vitest with globals enabled (no need to import `describe`/`it`/`expect`).
-
-## Plan PR workflow
-
-Use the repository's [plan-pr](.agents/skills/plan-pr/SKILL.md) to prepare an implementation
-plan for approval, then [ship-pr-dev](.agents/skills/ship-pr-dev/SKILL.md) for delivery.
-All dependencies are bundled in `.agents/skills/`; Claude Code uses relative links in
-`.claude/skills/`. Prefer these copies over global skills. See the
-[shared workflow guide](.agents/skills/plan-pr-bundle.md) for usage and prerequisites.
