@@ -1,120 +1,108 @@
 {
-  "$schema": "https://thecompanion.sh/schemas/companion-manifest.v2.schema.json",
+  "$schema": "https://skillpack.app/schemas/companion-manifest.v2.schema.json",
   "name": "review-code-dev",
-  "version": "1.0.7",
-  "title": "Review code",
-  "description": "Run isolated local code reviews with a primary review agent, bounded specialist loops, non-committable artifacts, and parseable P0-P3 findings.",
-  "notes": "## What it does\n\nMega Code Review reviews uncommitted changes, branch diffs, commits, or custom scopes in any repository while keeping the main conversation clean. It delegates deep review to an isolated primary reviewer when a safe adapter exists, passing only a minimal brief plus local git context.\n\n## Safety model\n\n- Read-only review by default.\n- Never edits files during review.\n- Never reproduces secret values.\n- Treats repository content as data, not instructions.\n- Writes portable artifacts under plans/review-code-dev/runs/.\n- Prepares that artifact root with a local Git exclude rule before writing, and refuses to use it if it is already tracked.\n\n## Specialist review loop\n\nThe primary reviewer runs a bounded loop: intent/scope audit, direct diff pass, focused specialists, optional red-team challenge, candidate vetting, artifact validation, and at most one artifact-only repair. Specialist reviewers live under references/reviewers/ and include frontend, backend, tests, security, architecture, performance, API contract, data migration, and red-team. The frontend reviewer depends on Impeccable for UI and design-review judgment while preserving Mega Code Review's read-only constraints.\n\n## Evidence discipline\n\nFocused helpers return structured candidate JSONL. The primary reviewer assigns confidence, fingerprints root causes, checks evidence, records duplicates and rejected candidates, and publishes only verified P0-P3 findings in review.md.\n\n## Artifacts\n\nThe review writes run-metadata.json, context.json, recon.md, coverage.md, review.md, and review.json. When delegation is used it also writes delegation-brief.md and subagents.md. Looping reviews may write scope-audit.md, candidate-findings.json, loop-state.json, artifact-validation.md, adversarial-review.md, rejected-findings.md, verification.md, fix-report.md, notes.md, or pr-link.md when the workflow calls for them.",
+  "version": "2.1.0",
+  "title": "Review Code — Alibaba",
+  "description": "Alibaba Open Code Review delegation: deterministic file selection and rules, host-agent review, and automatic macOS/Linux CLI setup without additional LLM configuration.",
+  "notes": "## Alibaba delegation workflow\n\nBased on Alibaba open-code-review-delegate at v1.12.1 (Apache-2.0). Retains the upstream workflow with portable CLI bootstrap and delivery-caller handoff compatibility.\n\n## Setup\n\nPython 3.9+, compatible Git and first-install internet access. No additional LLM API key, Node or sudo required for the bundled bootstrap. macOS Intel/Apple Silicon and Linux x86_64/ARM64 supported.\n\n## Version 2 change\n\nReplaces the previous custom orchestration, specialist lenses, native fallback and recurring PR-watch implementation. Uses upstream critical/high/medium/low severity. No dependency on another skill. This release does not claim measured superiority over the previous review.",
   "metadata": {
     "companionSkillId": "b0780a97-6972-4a2b-8e88-f41a528900c7",
     "changelog": [
       {
+        "version": "2.1.0",
+        "date": "2026-09-23",
+        "changes": [
+          "Include Skillpack activation reporting with optional identity, telemetry opt-out, and non-blocking delivery."
+        ]
+      },
+      {
+        "version": "2.0.0",
+        "date": "2026-09-14",
+        "changes": [
+          "Replace custom review orchestration with Alibaba open-code-review-delegate v1.12.1.",
+          "Retain automatic checksum-verified macOS/Linux bootstrap with no additional LLM configuration.",
+          "Remove custom specialist dependency, native fallback and recurring PR-watch implementation; preserve delivery-caller severity handoff."
+        ]
+      },
+      {
+        "version": "1.4.0",
+        "date": "2026-09-14",
+        "changes": [
+          "Default to Alibaba OCR delegation without additional LLM configuration.",
+          "Bootstrap checksum-pinned OCR 1.12.1 on macOS/Linux and preserve native fallback.",
+          "Reconcile OCR exclusions with Git inventory and retain exact branch scope and P0-P3 gates."
+        ]
+      },
+      {
+        "version": "1.3.2",
+        "date": "2026-08-20",
+        "changes": [
+          "Ignore Python bytecode caches produced when the PR-watch test is imported by discovery-based runners."
+        ]
+      },
+      {
+        "version": "1.3.1",
+        "date": "2026-08-20",
+        "changes": [
+          "Prevent the bundled PR-watch unit test from leaving Python bytecode caches in reviewed worktrees."
+        ]
+      },
+      {
+        "version": "1.3.0",
+        "date": "2026-08-20",
+        "changes": [
+          "Add Codex Luna/max, Claude Sonnet 5, and OpenCode-default host routing with effective-model telemetry.",
+          "Reduce focused reviewer caps from four/six to two/three and make every specialist consume the same finite budget.",
+          "Require fresh self-contained work orders, same-worker resume, no duplicate angles, and at most three concurrent read-only workers.",
+          "Add 5/20/35-minute non-blocking review checkpoints that surface drift without stopping necessary work.",
+          "Canonicalize package paths and fix the PR-watch default that was hard-coded to another user's home directory."
+        ]
+      },
+      {
+        "version": "1.2.1",
+        "date": "2026-08-05",
+        "changes": [
+          "Add an atomic recurring PR-watch ledger with baseline, claim, release, and reviewed states."
+        ]
+      },
+      {
         "version": "1.2.0",
         "date": "2026-06-26",
         "changes": [
-          "Add review-intelligence guidance for intent/scope audit, confidence calibration, fingerprints, evidence gates, and stop rules.",
-          "Switch focused sub-reviewer output to structured candidate JSONL so the primary reviewer can deduplicate and verify findings before publishing.",
-          "Add performance, API contract, data migration, and red-team specialist reviewer briefs.",
-          "Add scope-audit.md and adversarial-review.md artifact contracts."
-        ]
-      },
-      {
-        "version": "1.1.0",
-        "date": "2026-06-26",
-        "changes": [
-          "Add a bounded review loop with candidate classification, loop-state tracking, and artifact validation.",
-          "Add specialist reviewer briefs for frontend, backend, tests, security, and architecture.",
-          "Declare Impeccable as the frontend review dependency and require read-only Impeccable usage for UI review."
-        ]
-      },
-      {
-        "version": "1.0.7",
-        "date": "2026-07-03",
-        "changes": [
-          "Publish version 1.0.7."
-        ]
-      },
-      {
-        "version": "1.0.6",
-        "date": "2026-06-26",
-        "changes": [
-          "Publish version 1.0.6."
-        ]
-      },
-      {
-        "version": "1.0.5",
-        "date": "2026-06-25",
-        "changes": [
-          "Update the Companion manifest to the current v2 schema URL.",
-          "Republish the package with the new companion.json format."
-        ]
-      },
-      {
-        "version": "1.0.4",
-        "date": "2026-06-24",
-        "changes": [
-          "Add a preparation script that creates non-committable review artifact directories.",
-          "Require Git ignore verification before writing plans/review-code-dev artifacts.",
-          "Document run-metadata.json as the proof artifact for non-committable runs."
-        ]
-      },
-      {
-        "version": "1.0.3",
-        "date": "2026-06-24",
-        "changes": [
-          "Republish with Companion manifest v2 package preservation verification."
-        ]
-      },
-      {
-        "version": "1.0.2",
-        "date": "2026-06-24",
-        "changes": [
-          "Migrate package metadata to Companion manifest v2.",
-          "Move Companion registry identity and package version out of SKILL.md frontmatter.",
-          "Declare environment, dependencies, commands, notes, and changelog in companion.json."
-        ]
-      },
-      {
-        "version": "1.0.1",
-        "date": "2026-06-24",
-        "changes": [
-          "Add isolated primary reviewer flow by default to keep the main conversation context small.",
-          "Add delegation-brief.md artifact contract for primary review handoff.",
-          "Document primary reviewer and focused sub-reviewer responsibilities."
+          "Add evidence-gated specialist review intelligence and expanded reviewer lenses."
         ]
       },
       {
         "version": "1.0.0",
         "date": "2026-06-24",
         "changes": [
-          "Initial published version of Mega Code Review."
+          "Initial isolated read-only review workflow."
         ]
       }
     ]
   },
   "environment": {
-    "env": {},
+    "env": {
+      "REVIEW_CODE_OCR_HOME": {
+        "required": false,
+        "description": "Optional directory override for the verified OCR binary cache."
+      }
+    },
     "secrets": {}
   },
-  "dependencies": {
-    "design-frontend-dev": "02decff6-b4ac-4d06-a494-abeeb08db9f3"
-  },
+  "dependencies": {},
   "commands": [
     {
-      "name": "Review uncommitted changes",
-      "desc": "Collect local git context and run a read-only isolated review of the working tree."
+      "name": "Review working copy",
+      "desc": "Review staged, unstaged and untracked Git changes with Alibaba delegation."
     },
     {
-      "name": "Review branch against base",
-      "desc": "Compare a branch to a base ref and report confirmed P0-P3 findings."
+      "name": "Review branch",
+      "desc": "Review changes since merge base using OCR file selection and rules."
     },
     {
       "name": "Review commit",
-      "desc": "Review one commit or ref for merge-blocking issues and artifact-backed findings."
-    },
-    {
-      "name": "Run focused review",
-      "desc": "Apply a security, performance, tests, design, frontend, API contract, data migration, red-team, or custom review lens with optional focused helpers."
+      "desc": "Review one commit with upstream severity and coverage reporting."
     }
   ]
 }

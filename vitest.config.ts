@@ -1,8 +1,10 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     globals: true,
+    // Skill evaluation fixtures belong to their own harness, not Granite's test suite.
+    exclude: [...configDefaults.exclude, '.agents/skills/**', '.claude/skills/**'],
     // Jev is required, so constructors throw without a key. This placeholder lets the suite
     // run offline; it is not a credential and no test makes a network call.
     setupFiles: ['./test/setup.ts'],
