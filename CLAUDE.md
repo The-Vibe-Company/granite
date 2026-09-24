@@ -62,9 +62,19 @@ looks the way it does, so they belong with the rule rather than in a skill that 
   this pool hold an answer?" Noul returned 0.25 on a pool whose answer sat at rank 3 — a
   false negative, the worst failure a second brain can produce. Report it as context; do not
   gate on it. `ANSWERED_AT` / `ABSENT_BELOW` sit between the measured values.
-- **State the question when asking which sentence answers it.** "Which sentence carries the
-  answer?" made Jev abstain at 0.77 while the sentence holding the figure sat in the list at
-  0.10; restating the question moved that sentence to 0.96.
+- **Name the question in the state when asking which sentence answers it.** A state *without* the
+  question made Jev abstain at 0.77 while the sentence holding the figure sat in the list at 0.10.
+  Once the state carries it, restating it inside every `ev::` instruction is worse, not safer:
+  head-to-head on 60 real candidates, two runs per question, the named form cited the answering
+  note on every answerable question while restating it lost the citation on the long multi-part
+  one (`answered`, evidence null, twice). Naming it also stops a long question from costing the
+  request ~1 byte per character per candidate.
+- **Measure the request body; never model it.** The API's ceiling is a token limit, so the byte
+  boundary moves with the content: a run of one character is rejected at 131,000 bytes while prose
+  passes at 133,829. Budgeting from an estimate has cost three regressions, one of which refused an
+  ordinary 80-character question. The pool is trimmed against the serialized body it will actually
+  send, and every candidate keeps an excerpt — position in the pool is not relevance, and the note
+  that answered sat at rank 54 of 60.
 - **Do not ask for dates as dates** (correct 1 time in 9) and **do not auto-apply extracted
   facts** (0.75 precision, and the failure is silent). Propose; let a policy or a human decide.
 - **Do not build**: note decay or forgetting (the canonical citation never measured an

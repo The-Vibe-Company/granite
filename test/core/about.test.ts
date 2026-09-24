@@ -655,6 +655,17 @@ describe('the transport ceiling belongs to the branch that carries sentences', (
     d.close();
   });
 
+  it('does not blame the transport when the vault is what bounded the pool', () => {
+    // Exactly as many reachable notes as the ceiling allows, and the caller asked for more. Nothing
+    // was dropped by the ceiling, so the pool must not tell them to re-ask with `sentences: 0`.
+    const d = many(60);
+    const pool = entityPool(d, 'hub', { limit: 200, sentences: 6 });
+    expect(pool!.candidates).toHaveLength(60);
+    expect(pool!.reachable).toBe(60);
+    expect(pool!.trimmed_by_transport).toBe(false);
+    d.close();
+  });
+
   it('stops telling a trimmed caller to raise the limit, because that cannot work', () => {
     const d = many(200);
     const markdown = renderPoolMarkdown(entityPool(d, 'hub', { limit: 200, sentences: 6 })!);

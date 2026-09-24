@@ -32,6 +32,7 @@ import {
   judgePool,
   model as judgeModel,
   requireApiKey,
+  unjudgedNotes,
 } from './judge.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
@@ -604,7 +605,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       question: z.string().describe('The question to answer from the vault.'),
       anchor: z.string().describe('Slug of the note to grow the candidate set around — an entity, a client, a project.'),
       depth: z.number().int().min(1).optional().describe('Graph hops to walk. Defaults to 2.'),
-      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number; each candidate adds one score and one evidence question to a single batched request, so a larger pool costs little more time.'),
+      limit: z.number().int().min(1).optional().describe('Maximum candidates to judge. Defaults to the whole nearest graph band, so the note that answers is not dropped by a round number. One batched request carries them all: when the measured request would exceed the ceiling, every candidate keeps a shorter excerpt rather than a candidate being dropped, and a titles-only pool, which has no excerpt to shorten, is trimmed by count. `request_trim` reports exactly which of the two happened.'),
       sentences: z.number().int().min(0).optional().describe('Candidate sentences per note. Defaults to 6 here: judging needs the text, which is why this tool never takes the titles-only default that granite_pool uses for a large neighbourhood.'),
     },
     outputSchema: {
@@ -630,6 +631,11 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
         shown: z.number().int(),
       })).optional().describe('Per-hop reachable/shown counts. Read this before reporting absence: a verdict drawn from a truncated pool is a statement about the limit, not about the vault.'),
       beyond_depth: z.number().int().optional().describe('Real notes one hop beyond the walked depth. Non-zero means the walk stopped short, so an absence verdict is about the boundary rather than the vault.'),
+      request_trim: z.object({
+        candidates_in_pool: z.number().int(),
+        candidates_sent: z.number().int(),
+        excerpts_shortened: z.boolean(),
+      }).optional().describe('Present only when the measured request ceiling shaped this judgment. excerpts_shortened means detail was traded, not notes; candidates_sent below candidates_in_pool means notes were left out. `ranked` always lists exactly what was judged.'),
       reason: z.string().optional(),
     },
     annotations: readOnlyAnnotations,
@@ -658,13 +664,28 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     if ((verdict.beyond_depth ?? 0) > 0) {
       lines.push(`${verdict.beyond_depth} further note(s) sit one hop beyond the walked depth: this answer is about the depth reached, not about the vault.`, '');
     }
-    const dropped = (verdict.by_distance ?? []).filter(band => band.shown < band.reachable);
-    if (dropped.length > 0) {
+    const trim = verdict.request_trim;
+    // Both bounds that can leave a note unjudged, counted separately so the arithmetic closes: the
+    // candidate limit (from `by_distance`, which describes the pool) and the request ceiling (from
+    // `request_trim`, which describes what was sent).
+    const unjudged = unjudgedNotes(verdict);
+    if (unjudged.length > 0) {
       // An absence verdict from a capped pool is a claim about the limit, not the vault.
+      const notJudged = unjudged.map(row => (row.bound === 'ceiling'
+        ? `${row.count} left out by the request ceiling`
+        : `${row.count} beyond the candidate limit at distance ${row.distance}`));
       lines.push(
         `Judged ${(verdict.ranked ?? []).length} of ${verdict.reachable} reachable note(s); `
-        + `not judged: ${dropped.map(b => `${b.reachable - b.shown} at distance ${b.distance}`).join(', ')}.`,
+        + `not judged: ${notJudged.join(', and ')}.`,
         'Treat "absent" as provisional while anything is unjudged.',
+        '',
+      );
+    }
+    if (trim?.excerpts_shortened) {
+      // Missing detail, not missing notes: the ranking below is still every candidate that was sent.
+      lines.push(
+        'Every excerpt in this judgment is shorter than the one requested, to keep the batched request '
+        + 'under the measured ceiling.',
         '',
       );
     }

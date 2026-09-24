@@ -39,15 +39,99 @@ export const DEFAULT_MODEL = 'jev-1.13.0';
 const TIMEOUT_MS = 60_000;
 
 /**
- * The largest request body the API was measured to accept, in bytes.
+ * The largest request body this client will send, in bytes.
  *
- * Measured: 100 candidates with sentences is 94-100 KB and accepted; 141 is 142 KB and
- * rejected with HTTP 400. The pool trims candidate *counts* to stay under this, but a count is
- * an inference — a corpus whose sentences sit near the 400-character cap carries ~2.4 KB per
- * candidate against the ~1.03 KB measured average, so the same count can exceed the bound.
- * This is the enforcement at the boundary the rejection actually happens at.
+ * The API's limit is a **token** limit, not a byte limit: over it the gateway answers HTTP 400 with
+ * `error_type: max_tokens_exceeded`. The boundary in bytes therefore depends on the content's token
+ * density, so it was measured at both densities with real requests against the live endpoint:
+ *
+ * - a run of one repeated character — the densest content tested — is accepted at 130,800 bytes and
+ *   rejected at 131,000;
+ * - ordinary prose is accepted at 133,829 bytes and rejected at 139,919.
+ *
+ * 128,000 therefore sits ~2 % below the measured worst-density boundary, and the trim below measures
+ * the real wire body against it. Earlier values were inferred rather than measured: the original
+ * ~1.03 KB-per-candidate estimate under-counted by half, and the first byte guard reused the 142 KB
+ * of a payload that had been rejected, while 94-100 KB was the biggest body known to be accepted.
  */
-export const MAX_REQUEST_BYTES = 130_000;
+export const MAX_REQUEST_BYTES = 128_000;
+
+/**
+ * The bytes the wire body spends on everything that is not the state or the question set: the two
+ * wrapper keys, `{"state":…,"questions":…}`. The `model` field is added by the caller that knows the
+ * name, so a caller-overridden `TYPESAFE_MODEL` cannot silently eat this reserve — 64 bytes is
+ * generous for ~34 bytes of keys.
+ */
+const WIRE_OVERHEAD_BYTES = 64;
+
+/**
+ * Fit the pool inside its byte budget by measuring the body, not by estimating it.
+ *
+ * Three estimates here were wrong in the same way and each cost a behavioural regression: the
+ * first ceiling assumed ~1.03 KB per candidate against a real ~2.05 KB; the first trim assumed
+ * ~2.1 KB per candidate against a real ~1.65 KB; and the first question charge assumed the
+ * question's length was the only cost, at 60 bytes per character, which under-reserved the fixed
+ * ~860 bytes per candidate that its relevance question and criteria cost. That third estimate is
+ * why an ordinary 80-character question was REFUSED at the tool's own default while a
+ * 45-character one passed. So the caller passes a `measure` callback over the real wire body and
+ * this shrinks the excerpt until that body fits.
+ *
+ * Shrinking is spread across **every** candidate. An earlier version stripped sentences from the
+ * farthest ones, and the note that answered - measured at rank 54 of 60 - was farthest, so the
+ * citation vanished while the note stayed in the pool. Position is not relevance.
+ */
+export function trimToByteBudget<T extends { sentences: string[] }>(
+  candidates: T[],
+  budget: number,
+  sentencesPerNote: number,
+  measure: (candidates: T[]) => number,
+): T[] {
+  if (candidates.length === 0 || measure(candidates) <= budget) return candidates;
+
+  const withCount = (perCandidate: number) => candidates.map(candidate => ({
+    ...candidate,
+    sentences: candidate.sentences.slice(0, perCandidate),
+  }));
+
+  // The most sentences per candidate that still fits, searched from generous to minimal so a
+  // short question keeps everything it asked for.
+  let best = withCount(1);
+  for (let perCandidate = sentencesPerNote; perCandidate >= 1; perCandidate--) {
+    const attempt = withCount(perCandidate);
+    if (measure(attempt) <= budget) return attempt;
+    best = attempt;
+  }
+
+  // Even one sentence each is too much: shorten the excerpts rather than delete any candidate text,
+  // because truncation loses a clause and deletion loses the answer.
+  for (const width of [200, 120, 60]) {
+    const shortened = best.map(candidate => ({
+      ...candidate,
+      sentences: candidate.sentences.map(sentence => sentence.slice(0, width)),
+    }));
+    if (measure(shortened) <= budget) return shortened;
+    best = shortened;
+  }
+
+  // The caller asked for more than any request can carry. Only now do candidates go, and every
+  // remaining one still carries text — a titles-only pool has nothing to shorten, which is the path
+  // that reaches here. The largest prefix that fits is found by bisection, not by repeated 25% cuts:
+  // a 200-note pool whose body was 593 bytes over the ceiling lost 50 notes to that step.
+  let kept = best;
+  if (kept.length > 1 && measure(kept) > budget) {
+    // Monotone: a longer prefix is never smaller, so the first count that does not fit bounds the
+    // last one that does.
+    let lo = 1;
+    let hi = kept.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (measure(kept.slice(0, mid)) <= budget) lo = mid;
+      else hi = mid - 1;
+    }
+    kept = kept.slice(0, lo);
+  }
+  return kept;
+}
 
 export class RequestTooLargeError extends Error {
   readonly code = 'request_too_large';
@@ -104,7 +188,42 @@ export interface AnswerVerdict {
   by_distance?: PoolDistanceSummary[];
   /** Real notes one hop beyond the walked depth: the other bound a verdict is drawn inside. */
   beyond_depth?: number;
+  /**
+   * What the measured request ceiling did to this pool, or nothing when it left the pool alone.
+   *
+   * `ranked` always lists exactly what was sent, so this is the difference between "the vault has
+   * nothing more" and "the request could not carry more".
+   */
+  request_trim?: {
+    candidates_in_pool: number;
+    candidates_sent: number;
+    /** True when excerpts were shortened to fit, which happens before any candidate is dropped. */
+    excerpts_shortened: boolean;
+  };
   reason?: string;
+}
+
+/**
+ * Every note a verdict did not judge, with the bound that left it out.
+ *
+ * Two different bounds drop notes and they are known in different places: the candidate limit shows
+ * up in `by_distance`, which describes the POOL, and the request ceiling in `request_trim`, which
+ * describes what was SENT. Rendering only the first made a real titles-only answer read "Judged 201
+ * of 363; not judged: 108" — 201 + 108 = 309. Both together always add up to `reachable - judged`.
+ */
+export function unjudgedNotes(
+  verdict: AnswerVerdict,
+): Array<{ bound: 'limit' | 'ceiling'; distance?: number; count: number }> {
+  const rows: Array<{ bound: 'limit' | 'ceiling'; distance?: number; count: number }> = [];
+  for (const band of verdict.by_distance ?? []) {
+    if (band.shown < band.reachable) {
+      rows.push({ bound: 'limit', distance: band.distance, count: band.reachable - band.shown });
+    }
+  }
+  const trim = verdict.request_trim;
+  const dropped = (trim?.candidates_in_pool ?? 0) - (trim?.candidates_sent ?? 0);
+  if (dropped > 0) rows.push({ bound: 'ceiling', count: dropped });
+  return rows;
 }
 
 /** The configured key, or undefined. Startup checks use this; judgments use `requireApiKey`. */
@@ -175,15 +294,11 @@ export async function postQuestions(
   }
 }
 
-/** The pool as the state Jev reads: the question, then one entry per candidate. */
-export function buildState(pool: EntityPool, question: string) {
+/** The one shape both the state and the question set are built from. */
+function assembleState(pool: EntityPool, question: string, candidates = pool.candidates) {
   return {
-    // The question MUST be in the state. Every `rel::` question says "the question" without
-    // restating it, and questions are evaluated independently, so a state without it asks
-    // Jev to score relevance to nothing. The ranking, `top_score` and the verdict all come
-    // from those scores, and the thresholds were calibrated with the question present.
     question,
-    candidate_notes: pool.candidates.map(candidate => ({
+    candidate_notes: candidates.map(candidate => ({
       id: candidate.slug,
       title: candidate.title,
       type: candidate.type,
@@ -195,13 +310,106 @@ export function buildState(pool: EntityPool, question: string) {
 }
 
 /**
+ * The bytes this candidate set will actually put on the wire: the state AND the question set.
+ *
+ * The question set is not a rounding error. Measured at 60 candidates carrying six sentences each
+ * it is 46,395 B — 773 B per candidate of relevance question, criteria and evidence options — and
+ * 78,517 B at 200 titles-only candidates, 393 B each. It does not depend on the question's length
+ * at all, because the question lives once in the state and every `ev::` question names that field.
+ * That was not always true: with the question restated inside every `ev::` instruction, the same 60
+ * candidates cost 54,315 B at a 45-character question and 61,695 B at 200, so a budget that charged
+ * only `question.length * 60` under-reserved by ~50 KB and refused an ordinary question at the
+ * tool's own default. Measuring the body instead of modelling it is what closed that.
+ *
+ * `state` and `questions` are assembled from the SAME candidate list passed in, so what is
+ * measured here is what gets sent.
+ */
+export function requestBytes(
+  pool: EntityPool,
+  question: string,
+  candidates = pool.candidates,
+  modelName = '',
+): number {
+  const body = { state: assembleState(pool, question, candidates), questions: questionsFor(pool, candidates) };
+  // The model name is measured, not allowed for: it is caller-overridable, and a name long enough
+  // would otherwise turn the reserve into an under-reserve and make `postQuestions` refuse a body
+  // this selector approved.
+  return Buffer.byteLength(JSON.stringify(body), 'utf8')
+    + WIRE_OVERHEAD_BYTES + Buffer.byteLength(modelName, 'utf8');
+}
+
+/** The most sentences any candidate in this pool carries — what the caller asked for, as built. */
+function sentencesPerNote(candidates: EntityPool['candidates']): number {
+  return candidates.reduce((most, candidate) => Math.max(most, candidate.sentences.length), 0);
+}
+
+/**
+ * The candidate set every builder uses: the whole pool when the real wire body fits, a uniformly
+ * shorter one when it does not.
+ *
+ * Exported because it is the deterministic half of the answer path — `judgePool` ranks exactly
+ * this set, so the ranking, the "judged N of M" count and the questions asked all describe the
+ * same notes rather than three different ones.
+ */
+export function selectCandidates(
+  pool: EntityPool,
+  question: string,
+  modelName = '',
+): EntityPool['candidates'] {
+  return trimToByteBudget(
+    pool.candidates,
+    MAX_REQUEST_BYTES,
+    sentencesPerNote(pool.candidates),
+    // Measured on the real wire body, state plus question set. Measuring a reduced shape let two
+    // callers settle on different sets — one test caught them disagreeing by a single candidate —
+    // and measuring the state alone reserved nothing for the ~770 bytes per candidate the
+    // relevance and evidence questions cost.
+    candidates => requestBytes(pool, question, candidates, modelName),
+  );
+}
+
+/**
+ * The pool as the state Jev reads: the question, then one entry per candidate.
+ *
+ * `modelName` is not cosmetic: it is part of the byte reserve, so a caller running a custom
+ * `TYPESAFE_MODEL` must pass it to get the same candidate set `judgePool` sends. Both builders
+ * default to no name, which is what the default model costs; the wire guard is separate and
+ * `judgePool` is the only production path that builds a request.
+ */
+export function buildState(pool: EntityPool, question: string, modelName = '') {
+  // Trimming here — rather than refusing upstream — is what keeps the tool working at its own
+  // default pool size: a 60-candidate pool of ordinary notes is already over the ceiling.
+  // The state carries the question. It MUST: every `rel::` question says "the question" without
+  // restating it, and questions are evaluated independently, so a state without it asks Jev to
+  // score relevance to nothing. The ranking, `top_score` and the verdict all come from those
+  // scores, and the thresholds were calibrated with the question present.
+  return assembleState(pool, question, selectCandidates(pool, question, modelName));
+}
+
+/**
  * Ask which candidate answers the question, and which of its sentences carries it.
  *
  * The question is "does this answer the question?", never "is this related?" — the two
  * ranked differently on real data, and the broader one put generic explainers above the
  * note holding the figure.
  */
-export function buildAnswerQuestions(pool: EntityPool, questionText: string): Record<string, unknown> {
+export function buildAnswerQuestions(
+  pool: EntityPool,
+  questionText: string,
+  modelName = '',
+): Record<string, unknown> {
+  // Must be the same trim `buildState` applies, or a question is asked about a candidate whose
+  // sentences the state no longer carries.
+  return questionsFor(pool, selectCandidates(pool, questionText, modelName));
+}
+
+/**
+ * The question set for one specific candidate list.
+ *
+ * It takes no question text on purpose: every question here refers to the state's `question`
+ * field, which is assembled from the same call, so a long question costs the request nothing.
+ */
+function questionsFor(pool: EntityPool, candidates: EntityPool['candidates']): Record<string, unknown> {
   const questions: Record<string, unknown> = {
     // Reported as context, never used as the decision. An absolute "does the pool hold an
     // answer?" was measured giving a false negative on a pool whose answer sat at rank 3
@@ -218,7 +426,7 @@ export function buildAnswerQuestions(pool: EntityPool, questionText: string): Re
     },
   };
 
-  for (const candidate of pool.candidates) {
+  for (const candidate of candidates) {
     const id = candidate.slug;
     questions[`rel::${id}`] = {
       type: 'score',
@@ -230,15 +438,20 @@ export function buildAnswerQuestions(pool: EntityPool, questionText: string): Re
     if (candidate.sentences.length > 0) {
       questions[`ev::${id}`] = {
         type: 'choice',
-        // The question is restated in full rather than referred to as "the answer". Measured
-        // on a real note: "which sentence carries the answer?" returned `none` at 0.77 while
-        // the sentence stating the figure sat in the list at 0.10; stating the question and
-        // asking which sentence contains its answer moved that sentence to 0.96. The model
-        // could always do it — the instruction was what made it abstain.
+        // The question is named, not restated. Restating it was measured to be necessary once —
+        // "which sentence carries the answer?" returned `none` at 0.77 while the sentence stating
+        // the figure sat in the list at 0.10 — but that measurement was taken while the state
+        // itself omitted the question, so the instruction was the only place it could exist.
+        // Head-to-head on the real vault at 60 candidates, two runs per question: the named form
+        // cites the answering note on all four answerable questions, while restating the question
+        // lost the citation on the long multi-part one (`answered`, top score 1.97, evidence null,
+        // twice). Both forms gave identical verdicts, identical top notes and the same refusal on
+        // the unanswerable control. Naming it also stops the question's length multiplying against
+        // the pool, which is what made an ordinary question overflow the request ceiling.
         instructions:
-          `The question is: ${questionText}. Which single sentence of candidate_notes[id=${id}] `
-          + 'contains the answer to that question? Choose the sentence that states it, or none '
-          + 'if no sentence does.',
+          `Which single sentence of candidate_notes[id=${id}] states the answer to the question in `
+          + "the state's `question` field? Choose the sentence that states it, or none if no "
+          + 'sentence does.',
         criteria: {
           ...Object.fromEntries(candidate.sentences.map((_, index) => [`s${index}`, 'A sentence of this note.'])),
           none: 'No sentence states the answer.',
@@ -274,11 +487,17 @@ export async function judgePool(
   key: string,
   modelName: string,
 ): Promise<AnswerVerdict> {
-  const state = buildState(pool, question);
-  const answers = (await postQuestions(key, modelName, state, buildAnswerQuestions(pool, question)))
+  // One selection, used three times: the state that is sent, the questions that are asked, and
+  // the ranking that comes back. Ranking `pool.candidates` instead reported every candidate the
+  // trim had removed as scored 0 — indistinguishable from a note Jev scored 0 — and inflated the
+  // "Judged N of M" count: measured 2 such phantoms at a 45-character question and 16 at 200 on
+  // the titles-only path, where the trim was removing notes the real body had room for.
+  const candidates = selectCandidates(pool, question, modelName);
+  const state = assembleState(pool, question, candidates);
+  const answers = (await postQuestions(key, modelName, state, questionsFor(pool, candidates)))
     .answers as Record<string, Record<string, unknown>> | undefined ?? {};
 
-  const ranked: JudgeAnswer[] = pool.candidates.map(candidate => {
+  const ranked: JudgeAnswer[] = candidates.map(candidate => {
     const id = candidate.slug;
     const score = Number(answers[`rel::${id}`]?.score ?? 0);
     const picked = answers[`ev::${id}`]?.choice;
@@ -288,6 +507,8 @@ export async function judgePool(
       type: candidate.type,
       distance: candidate.distance,
       score: Math.round(score * 100) / 100,
+      // Resolved against the sentences that were actually sent, not the untrimmed ones: an index
+      // is only meaningful in the option list Jev was given.
       evidence: evidenceSentence(picked, candidate.sentences),
     };
   });
@@ -295,6 +516,23 @@ export async function judgePool(
 
   const topScore = ranked.length > 0 ? ranked[0].score : 0;
   const poolHasAnswer = answers.pool_has_answer?.noul;
+  // Compared by content, not by count: the width branch (200/120/60-character excerpts) shortens a
+  // sentence without changing how many there are, and a count-only test called that an untouched
+  // request. Measured on synthetic one-sentence pools, where that branch is the one that runs.
+  const before = new Map(pool.candidates.map(candidate => [candidate.slug, candidate.sentences]));
+  const excerptsShortened = candidates.some((candidate) => {
+    const original = before.get(candidate.slug);
+    return original === undefined
+      || original.length !== candidate.sentences.length
+      || candidate.sentences.some((sentence, index) => sentence !== original[index]);
+  });
+  const requestTrim = candidates.length !== pool.candidates.length || excerptsShortened
+    ? {
+      candidates_in_pool: pool.candidates.length,
+      candidates_sent: candidates.length,
+      excerpts_shortened: excerptsShortened,
+    }
+    : undefined;
 
   if (ranked.length === 0) {
     // No candidates is a fact about the anchor, not about the vault: saying "absent" alone
@@ -329,6 +567,7 @@ export async function judgePool(
     reachable: pool.reachable,
     by_distance: pool.by_distance,
     beyond_depth: pool.beyond_depth,
+    request_trim: requestTrim,
   };
 }
 
@@ -337,6 +576,20 @@ export const LINK_THRESHOLD = 0.5;
 
 /** The `choice` fallback sentinel. A vault type with this name gets a distinct option key. */
 const OTHER_TYPE = 'OTHER';
+
+/**
+ * A fallback option key that no declared type can be.
+ *
+ * The obvious one-step de-collision (`OTHER` is taken, so use `OTHER_OPTION`) still collides with
+ * a vault that declares both — and that collision is not cosmetic: the fallback is spread last, so
+ * the declared type loses its criterion, and the answer filter drops the model's genuine pick.
+ * Suffixing until the key is free terminates because the declared set is finite.
+ */
+function fallbackTypeKey(types: string[]): string {
+  let key = OTHER_TYPE;
+  while (types.includes(key)) key = `${key}_OPTION`;
+  return key;
+}
 
 export interface LinkProposal {
   target: string;
@@ -421,15 +674,16 @@ export async function proposeLinks(
   // `OTHER` is the fallback a `choice` needs: without one the model still picks from the
   // closed set on input that fits nothing, which is how a note gets routed to a type it is not.
   if (types.length > 0) {
-    // The fallback key must not collide with a declared type. Spreading it last meant a vault
-    // that legitimately declares a type named like the sentinel lost that type's criterion.
-    const fallbackKey = types.includes(OTHER_TYPE) ? `${OTHER_TYPE}_OPTION` : OTHER_TYPE;
+    // The fallback key must not collide with a declared type — and a vault may declare any name,
+    // `OTHER` and `OTHER_OPTION` included. Spreading it last meant a vault that legitimately
+    // declares a type named like the sentinel lost that type's criterion, and filtering the answer
+    // by name meant losing its judgment too. So the key is chosen against the declared set.
     questions.note_type = {
       type: 'choice',
       instructions: 'Which single type best describes new_note?',
       criteria: {
         ...Object.fromEntries(types.map(t => [t, `A ${t} note.`])),
-        [fallbackKey]: 'None of the declared types fits.',
+        [fallbackTypeKey(types)]: 'None of the declared types fits.',
       },
     };
   }
@@ -463,10 +717,9 @@ export async function proposeLinks(
 
   const rawType = answers.note_type?.choice;
   // The fallback sentinel is not a note type, and returning it verbatim proposed `OTHER` as one.
-  // Both the plain sentinel and the de-collided variant are fallbacks, not types. Filtering
-  // only `OTHER` let `OTHER_OPTION` be proposed as a note type in a vault that declares OTHER.
-  const isFallbackType = typeof rawType === 'string'
-    && (rawType === OTHER_TYPE || rawType === `${OTHER_TYPE}_OPTION`);
+  // It is identified as the key this call actually reserved, not by name: a vault that declares
+  // `OTHER` or `OTHER_OPTION` as a real type must not have that judgment thrown away.
+  const isFallbackType = typeof rawType === 'string' && rawType === fallbackTypeKey(types);
   const noteType = typeof rawType === 'string' && !isFallbackType ? rawType : undefined;
   const pickedTags = tagVocabulary.filter(tag => (answers[`tag::${tag}`]?.noul ?? 0) >= LINK_THRESHOLD);
 

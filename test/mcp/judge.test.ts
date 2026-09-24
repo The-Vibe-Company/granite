@@ -1,7 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import { entityPool } from '../../src/core/about.js';
-import { buildAnswerQuestions, buildState, evidenceSentence, postQuestions } from '../../src/mcp/judge.js';
+import {
+  MAX_REQUEST_BYTES,
+  buildAnswerQuestions,
+  buildState,
+  evidenceSentence,
+  judgePool,
+  postQuestions,
+  proposeLinks,
+  requestBytes,
+  selectCandidates,
+  unjudgedNotes,
+} from '../../src/mcp/judge.js';
 
 /**
  * The judge layer is the one place Granite calls a model, so its contract has two halves
@@ -93,14 +104,23 @@ describe('buildAnswerQuestions', () => {
     expect(validate(buildAnswerQuestions(pool()!, 'What does the client pay?'))).toEqual([]);
   });
 
-  it('restates the question instead of referring to "the answer"', () => {
-    // Measured: "which sentence carries the answer?" made Jev abstain at 0.77 while the
-    // sentence stating the figure sat in the list at 0.10. Stating the question moved it to
-    // 0.96, so the wording is behaviour, not style.
+  it('names the question in the state instead of restating it per candidate', () => {
+    // Measured, twice, on real data. First: "which sentence carries the answer?" made Jev abstain at
+    // 0.77 while the sentence stating the figure sat in the list at 0.10 — but that run sent a state
+    // that omitted the question, so the instruction was the only place the question could be. Once
+    // the state carries it, restating it again per candidate is worse, not safer: head-to-head on
+    // 60 real candidates, two runs per question, the named form cited the answering note on every
+    // answerable question while restating it lost the citation on the long multi-part one
+    // (`answered`, top score 1.97, evidence null, twice). Naming it is also what stops a 241-character
+    // question from costing the request ~240 bytes per candidate.
     const questions = buildAnswerQuestions(pool()!, 'What does the client pay for hosting?');
     const evidence = Object.entries(questions).find(([id]) => id.startsWith('ev::'))![1] as any;
-    expect(evidence.instructions).toContain('What does the client pay for hosting?');
-    expect(evidence.instructions).toContain('contains the answer');
+    expect(evidence.instructions).not.toContain('What does the client pay for hosting?');
+    expect(evidence.instructions).toContain('`question`');
+    expect(evidence.instructions).toContain('states the answer');
+    // And the field it names is one the state really carries, with that exact text.
+    const state = buildState(pool()!, 'What does the client pay for hosting?');
+    expect(state.question).toBe('What does the client pay for hosting?');
   });
 
   it('gives every choice question a fallback option', () => {
@@ -150,6 +170,12 @@ describe('the state sent to Jev', () => {
       const restated = instructions.includes(question);
       const resolvable = typeof state.question === 'string' && state.question.length > 0;
       expect(restated || resolvable, `${id} has no antecedent`).toBe(true);
+      // The evidence questions must NAME the state field, not rely on a loose "the question":
+      // they are the ones that had to be restated before the state carried the question at all.
+      if (id.startsWith('ev::')) {
+        expect(instructions).toContain('question');
+        expect(instructions).not.toContain(question);
+      }
     }
   });
 });
@@ -183,6 +209,45 @@ describe('capture-time link proposals', () => {
     const empty = { note: 'x', proposed: [], rejected: [], not_judged: 0 };
     expect(empty.not_judged).toBe(0);
   });
+
+  it('never mistakes a declared note type for the fallback sentinel', async () => {
+    // A `choice` needs a fallback, and the fallback is not a type. The first version reserved
+    // `OTHER_OPTION` for a vault that declares `OTHER` — which collides with a vault that declares
+    // both, silently overwriting that type's criterion and discarding the model's genuine pick.
+    const types = ['note', 'OTHER', 'OTHER_OPTION'];
+    const reserved = 'OTHER_OPTION_OPTION';
+    let asked: any;
+    const run = async (choice: string) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input: any, init: any) => {
+        asked = (JSON.parse(String(init.body)) as { questions: Record<string, any> }).questions;
+        return new Response(
+          JSON.stringify({ answers: { 'link::acme': { noul: 0.1 }, note_type: { choice } } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      });
+      try {
+        return await proposeLinks(
+          { slug: 'new-a', title: 'New', body: 'We met Acme.' },
+          [{ slug: 'acme', title: 'Acme' }],
+          'k',
+          'm',
+          { types },
+        );
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    };
+
+    // A declared type survives, whichever name it has.
+    expect((await run('OTHER_OPTION')).note_type).toBe('OTHER_OPTION');
+    expect((await run('OTHER')).note_type).toBe('OTHER');
+    // The key actually reserved is discarded rather than proposed as a type.
+    expect((await run(reserved)).note_type).toBeUndefined();
+    // And every declared type kept its own criterion, so none was overwritten by the fallback.
+    const criteria = asked.note_type.criteria as Record<string, string>;
+    expect(Object.keys(criteria)).toEqual([...types, reserved]);
+    expect(validate(asked)).toEqual([]);
+  });
 });
 
 describe('the request byte ceiling is enforced where the rejection happens', () => {
@@ -206,5 +271,365 @@ describe('the request byte ceiling is enforced where the rejection happens', () 
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+});
+
+describe('the byte budget follows the real wire body, not a constant', () => {
+  // The pool has to be big enough to reach the ceiling, and the first version of this fixture was
+  // not: it sat at ~22 KB under a ~120 KB budget for BOTH questions, so the trim never ran and the
+  // assertions held trivially. The test was green while proving nothing. This pool overflows the
+  // 128,000-byte ceiling on its own, before any question is added.
+  const widePool = (notes = 80) => {
+    const d = new (require('better-sqlite3'))(':memory:') as Database.Database;
+    d.exec(`
+      CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, status TEXT, body TEXT);
+      CREATE TABLE links (source_slug TEXT, target_slug TEXT, target_raw TEXT, context TEXT);
+    `);
+    const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)');
+    const link = d.prepare('INSERT INTO links VALUES (?,?,?,?)');
+    note.run('hub', 'Hub', 'organization', 'active', 'The anchor.');
+    const clause = (noteIndex: number, clauseIndex: number) =>
+      `Note ${noteIndex} clause ${clauseIndex} records the agreed monthly retainer, the invoicing `
+      + 'contact, the billing currency and the review date that the client confirmed in writing '
+      + 'during the onboarding call, with any outstanding questions about the scope of the work.';
+    // 80 linked notes against a 60-candidate pool, so "nothing was dropped" below is a real claim.
+    for (let i = 0; i < notes; i++) {
+      const body = Array.from({ length: 8 }, (_, s) => clause(i, s)).join(' ');
+      note.run(`n${i}`, `Note ${i}`, 'note', 'active', body);
+      link.run(`n${i}`, 'hub', 'hub', `ref ${i}`);
+    }
+    return d;
+  };
+
+  /** 300 linked notes with no sentences worth sampling, so nothing but the ceiling bounds the pool. */
+  const wideTitlesOnlyPool = () => {
+    const d = new (require('better-sqlite3'))(':memory:') as Database.Database;
+    d.exec(`
+      CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, status TEXT, body TEXT);
+      CREATE TABLE links (source_slug TEXT, target_slug TEXT, target_raw TEXT, context TEXT);
+    `);
+    const note = d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)');
+    const link = d.prepare('INSERT INTO links VALUES (?,?,?,?)');
+    note.run('hub', 'Hub', 'organization', 'active', 'The anchor.');
+    for (let i = 0; i < 300; i++) {
+      note.run(`n${i}`, `Note ${i}`, 'note', 'active', `Body of note ${i}.`);
+      link.run(`n${i}`, 'hub', 'hub', `ref ${i}`);
+    }
+    return d;
+  };
+
+  const shortQuestion = 'What does it cost?';
+  const longQuestion = 'What exactly does the client pay for managed hosting, including the monthly '
+    + 'figure and the committed total over the whole term, which currency is used for the invoice, '
+    + 'who at the client side receives it, what happens if a payment is late, and does the retainer '
+    + 'cover the onboarding work as well as the ongoing support, or are those invoiced separately?';
+
+  const counts = (state: any) => state.candidate_notes.map((c: any) => Object.keys(c.sentences).length);
+  const sentenceTotal = (state: any) => counts(state).reduce((a: number, b: number) => a + b, 0);
+
+  it('shrinks every candidate excerpt instead of refusing, and never drops a candidate for that', () => {
+    // The regression, in two halves. First the trim stripped sentences from the FARTHEST candidates,
+    // and the note that answered — measured at rank 54 of 60 — lost its text, so `granite_answer`
+    // returned `answered` with no citation while the note stayed in the pool. Second, the budget was
+    // charged per candidate from the question's length, so an ordinary 80-character question was
+    // REFUSED at the tool's own default while a 45-character one passed. Recall is now preserved the
+    // only way it can be: every candidate keeps an excerpt, uniformly shorter.
+    const d = widePool();
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    const short = buildState(pool, shortQuestion);
+    const long = buildState(pool, longQuestion);
+    const sent = (question: string) => requestBytes(pool, question, selectCandidates(pool, question));
+
+    // The fixture must actually need the trim, or the rest of this proves nothing.
+    expect(requestBytes(pool, longQuestion)).toBeGreaterThan(MAX_REQUEST_BYTES);
+    expect(sent(longQuestion)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
+    expect(sent(shortQuestion)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
+
+    // Nothing was dropped, and nothing went without text.
+    expect(counts(long).length).toBe(counts(short).length);
+    expect(counts(long).length).toBe(pool.candidates.length);
+    expect(counts(long).every((n: number) => n > 0)).toBe(true);
+
+    // The trim is real (it shortened the excerpts) and it is uniform, not positional.
+    expect(sentenceTotal(long)).toBeLessThan(pool.candidates.length * 6);
+    expect(new Set(counts(long)).size).toBe(1);
+
+    // The question's LENGTH no longer costs the pool anything: with the sentence question naming the
+    // state's `question` field, a 241-character question and an 18-character one land within a few
+    // hundred bytes of each other, so the same candidates and the same excerpts are sent for both.
+    expect(Math.abs(sent(longQuestion) - sent(shortQuestion))).toBeLessThan(2_000);
+    d.close();
+  });
+
+  it('pays no fidelity when the pool already fits', () => {
+    const d = widePool(20);
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    expect(requestBytes(pool, longQuestion)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
+    expect(counts(buildState(pool, longQuestion)).every((n: number) => n === 6)).toBe(true);
+    d.close();
+  });
+
+  it('asks about exactly the candidates the state carries, under the trim', () => {
+    // Asking about a candidate whose sentences the state dropped would be a question about
+    // nothing, and its `ev::` choice would have an empty option set. The long question is the
+    // one where the two builders could disagree, so the agreement is asserted where it can fail.
+    const d = widePool();
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    const state: any = buildState(pool, longQuestion);
+    const questions = buildAnswerQuestions(pool, longQuestion);
+    expect(requestBytes(pool, longQuestion)).toBeGreaterThan(MAX_REQUEST_BYTES);
+    expect(Math.max(...counts(state))).toBeLessThan(6);
+    const inState = new Set(state.candidate_notes.map((c: any) => c.id));
+    const asked = new Set(Object.keys(questions).filter(k => k.startsWith('rel::')).map(k => k.slice(5)));
+    expect([...asked].sort()).toEqual([...inState].sort());
+    // The shapes the trim produces still satisfy the API's own rules, not just the untrimmed ones.
+    expect(validate(questions)).toEqual([]);
+    d.close();
+  });
+
+  it('does not trim a titles-only pool for questions it never asks', () => {
+    // The reserve used to charge the question per candidate even at `sentences: 0`, where no
+    // `ev::` question exists to restate it: `granite_answer(limit: 200, sentences: 0)` judged 198
+    // of 200 at a 45-character question and 184 at 200, while the real bodies were 122-124 KB
+    // under a 130 KB ceiling. Nothing to trim means nothing trimmed, at any question length.
+    const d = wideTitlesOnlyPool();
+    const pool = entityPool(d, 'hub', { sentences: 0, limit: 200 })!;
+    expect(pool.candidates.length).toBe(200);
+    for (const question of [shortQuestion, longQuestion]) {
+      const selected = selectCandidates(pool, question);
+      expect(selected.map(c => c.slug)).toEqual(pool.candidates.map(c => c.slug));
+      expect(requestBytes(pool, question, selected)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
+    }
+    d.close();
+  });
+
+  it('ranks exactly the candidates it asked about, never phantom zeros', async () => {
+    // `judgePool` used to rank `pool.candidates` while the trim had shortened the sent set, so a
+    // trimmed-away note was reported with score 0 — indistinguishable from a note Jev scored 0 —
+    // and the "Judged N of M" line counted notes that were never asked about. The pool is built by
+    // hand because the answer tool caps its own at 60 with sentences: the drop path needs a pool no
+    // excerpt length can fit, which is exactly when it matters and exactly when it is unreachable
+    // through the tool today.
+    const candidates = Array.from({ length: 400 }, (_, i) => ({
+      slug: `n${i}`,
+      title: `Note ${i}`,
+      type: 'note',
+      distance: 1,
+      sentences: Array.from({ length: 6 }, (_, s) => `Sentence ${s} of note ${i}: ` + 'mot '.repeat(120)),
+    }));
+    const pool: any = {
+      anchor: 'hub',
+      anchor_title: 'Hub',
+      reachable: 400,
+      candidates,
+      by_distance: [{ distance: 1, reachable: 400, shown: 400 }],
+      beyond_depth: 0,
+    };
+    const asked: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input: any, init: any) => {
+      const body = JSON.parse(String(init.body)) as { questions: Record<string, unknown> };
+      const answers: Record<string, unknown> = {};
+      for (const key of Object.keys(body.questions)) {
+        if (key.startsWith('rel::')) {
+          asked.push(key.slice(5));
+          answers[key] = { score: 1 };
+        } else if (key.startsWith('ev::')) {
+          answers[key] = { choice: 'none' };
+        }
+      }
+      answers.pool_has_answer = { noul: 0.9 };
+      return new Response(JSON.stringify({ answers }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    try {
+      const selected = selectCandidates(pool, longQuestion);
+      expect(selected.length).toBeLessThan(candidates.length);
+      const verdict = await judgePool(pool, longQuestion, 'k', 'm');
+      expect(asked.length).toBe(selected.length);
+      expect(new Set(asked)).toEqual(new Set(verdict.ranked.map(a => a.slug)));
+      // The count the "Judged N of M" line is drawn from describes the notes actually asked about.
+      expect(verdict.ranked.length).toBe(asked.length);
+      expect(verdict.ranked.every(a => asked.includes(a.slug))).toBe(true);
+      // And the verdict says what the ceiling did, so a caller can tell "the vault has nothing
+      // more" from "the request could not carry more".
+      expect(verdict.request_trim).toEqual({
+        candidates_in_pool: candidates.length,
+        candidates_sent: selected.length,
+        excerpts_shortened: true,
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('drops the fewest candidates the ceiling requires, which is the fewest it can', () => {
+    // A titles-only pool has no excerpt to shorten, so the only thing left to give up is a note.
+    // Repeated 25% cuts threw away 50 of a 200-note pool whose body was 593 bytes over the ceiling;
+    // the count kept is now the largest prefix that fits, which is the whole of what recall costs.
+    const candidates = Array.from({ length: 255 }, (_, i) => ({
+      slug: `note-${i}`,
+      title: `Note number ${i} about the client engagement`,
+      type: 'note',
+      distance: 1,
+      sentences: [] as string[],
+    }));
+    const pool: any = {
+      anchor: 'hub',
+      anchor_title: 'Hub',
+      reachable: 255,
+      candidates,
+      by_distance: [{ distance: 1, reachable: 255, shown: 255 }],
+      beyond_depth: 0,
+    };
+    const selected = selectCandidates(pool, longQuestion);
+    expect(selected.length).toBeGreaterThan(1);
+    expect(selected.length).toBeLessThan(255);
+    const at = (count: number) => requestBytes(pool, longQuestion, candidates.slice(0, count));
+    expect(at(selected.length)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
+    expect(at(selected.length + 1)).toBeGreaterThan(MAX_REQUEST_BYTES);
+  });
+
+  it('reports truncated excerpts as shortened, not as an untouched request', async () => {
+    // The 200/120/60-character branch cuts the text of every excerpt without changing how many
+    // sentences there are, so a count-based test called the request untouched, and `request_trim`
+    // stayed absent while the excerpts were 8x shorter. Latent only because that branch needs more
+    // one-sentence candidates than the answer tool can build; silent when it goes live.
+    const candidates = Array.from({ length: 120 }, (_, i) => ({
+      slug: `n${i}`,
+      title: `Note ${i}`,
+      type: 'note',
+      distance: 1,
+      sentences: [`Note ${i} states the price. ` + 'mot '.repeat(400)],
+    }));
+    const pool: any = {
+      anchor: 'hub',
+      anchor_title: 'Hub',
+      reachable: 120,
+      candidates,
+      by_distance: [{ distance: 1, reachable: 120, shown: 120 }],
+      beyond_depth: 0,
+    };
+    expect(selectCandidates(pool, shortQuestion).length).toBe(120);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ answers: { pool_has_answer: { noul: 0.1 } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    try {
+      const verdict = await judgePool(pool, shortQuestion, 'k', 'm');
+      expect(verdict.request_trim).toEqual({
+        candidates_in_pool: 120,
+        candidates_sent: 120,
+        excerpts_shortened: true,
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('selects the same set in every builder, for any model name', () => {
+    // The seam the round-6 review found: `buildState` and `buildAnswerQuestions` selected with an
+    // empty model name while `judgePool` sent the set for the real one, so a long `TYPESAFE_MODEL`
+    // made them disagree — 200 candidates against 201, and 194 against 201 at 5,000 bytes. Every
+    // builder now takes the name, so the sets agree by construction.
+    // The pool is built by hand because it has to sit on the boundary for the model name to matter:
+    // 255 titles whose body is already over the ceiling before any reserve, so the fitting prefix
+    // moves with the name. The size is asserted below rather than quoted, because it depends on the
+    // exact question string and a comment that guesses it drifts.
+    const candidates = Array.from({ length: 255 }, (_, i) => ({
+      slug: `note-${i}`,
+      title: `Note number ${i} about the client engagement`,
+      type: 'note',
+      distance: 1,
+      sentences: [] as string[],
+    }));
+    const pool: any = {
+      anchor: 'hub',
+      anchor_title: 'Hub',
+      reachable: 255,
+      candidates,
+      by_distance: [{ distance: 1, reachable: 255, shown: 255 }],
+      beyond_depth: 0,
+    };
+    // The fixture must be able to fail: the pool is over the ceiling, and a 5,000-byte model name
+    // has to shrink the selection.
+    expect(requestBytes(pool, longQuestion)).toBeGreaterThan(MAX_REQUEST_BYTES);
+    expect(selectCandidates(pool, longQuestion, 'm'.repeat(5_000)).length)
+      .toBeLessThan(selectCandidates(pool, longQuestion).length);
+    for (const modelName of ['', 'jev-1.13.0', 'm'.repeat(300), 'm'.repeat(5_000)]) {
+      const sent = selectCandidates(pool, longQuestion, modelName).map(c => c.slug);
+      const state: any = buildState(pool, longQuestion, modelName);
+      const questions = buildAnswerQuestions(pool, longQuestion, modelName);
+      expect(state.candidate_notes.map((c: any) => c.id)).toEqual(sent);
+      expect(Object.keys(questions).filter(k => k.startsWith('rel::')).map(k => k.slice(5))).toEqual(sent);
+      // And the default is the reserve the default model needs, not a larger set.
+      if (modelName === '') {
+        expect(sent.length).toBe(selectCandidates(pool, longQuestion, 'jev-1.13.0').length);
+      }
+    }
+  });
+
+  it('measures the model name into the request, because it is caller-overridable', () => {
+    // The reserve is the wrapper keys plus the model field. A `TYPESAFE_MODEL` longer than the
+    // allowance used to under-reserve silently, which turns a trimmable pool into a refusal.
+    const d = widePool();
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    const selected = selectCandidates(pool, longQuestion);
+    const withoutName = requestBytes(pool, longQuestion, selected);
+    const longName = 'm'.repeat(300);
+    expect(requestBytes(pool, longQuestion, selected, longName) - withoutName).toBe(300);
+    // And the selection really is made against the larger reserve.
+    expect(selectCandidates(pool, longQuestion, longName).length)
+      .toBeLessThanOrEqual(selectCandidates(pool, longQuestion).length);
+    d.close();
+  });
+
+  it('accounts for every unjudged note, so the rendered counts add up', () => {
+    // The candidate limit and the request ceiling are known in different places; reporting only the
+    // first made a real titles-only answer read "Judged 201 of 363; not judged: 108".
+    const verdict = {
+      status: 'ok' as const,
+      question: 'Quel est le prix ?',
+      verdict: 'partial' as const,
+      top_score: 0.8,
+      ranked: Array.from({ length: 201 }, (_, i) => ({
+        slug: `n${i}`, title: `Note ${i}`, type: 'note', distance: 1, score: 0.5, evidence: null,
+      })),
+      reachable: 363,
+      by_distance: [{ distance: 1, reachable: 363, shown: 255 }],
+      request_trim: { candidates_in_pool: 255, candidates_sent: 201, excerpts_shortened: false },
+    };
+    const rows = unjudgedNotes(verdict);
+    const counted = rows.reduce((sum, row) => sum + row.count, 0);
+    expect(counted).toBe(verdict.reachable - verdict.ranked.length);
+    expect(rows).toEqual([
+      { bound: 'limit', distance: 1, count: 108 },
+      { bound: 'ceiling', count: 54 },
+    ]);
+  });
+
+  it('reports a trim that shortened excerpts without losing a single note', async () => {
+    const d = widePool();
+    const pool = entityPool(d, 'hub', { sentences: 6 })!;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ answers: { pool_has_answer: { noul: 0.1 } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    try {
+      const verdict = await judgePool(pool, longQuestion, 'k', 'm');
+      expect(verdict.request_trim).toEqual({
+        candidates_in_pool: pool.candidates.length,
+        candidates_sent: pool.candidates.length,
+        excerpts_shortened: true,
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+    d.close();
   });
 });
