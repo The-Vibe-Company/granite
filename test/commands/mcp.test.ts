@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mcpCommand, parseMcpRole, parsePort, parseTransport, resolveAuthToken } from '../../src/commands/mcp.js';
 
+const originalPort = process.env.PORT;
 const originalMcpPort = process.env.MCP_PORT;
 const originalGraniteMcpToken = process.env.GRANITE_MCP_TOKEN;
 
 describe('mcp command helpers', () => {
   afterEach(() => {
+    if (originalPort === undefined) delete process.env.PORT;
+    else process.env.PORT = originalPort;
     if (originalMcpPort === undefined) {
       delete process.env.MCP_PORT;
     } else {
@@ -23,12 +26,19 @@ describe('mcp command helpers', () => {
     expect(parsePort('5555')).toBe(5555);
   });
 
-  it('falls back to MCP_PORT and then the default port', () => {
+  it('falls back to MCP_PORT, Railway PORT, and then the default port', () => {
+    process.env.PORT = '8080';
     process.env.MCP_PORT = '4444';
     expect(parsePort()).toBe(4444);
 
     delete process.env.MCP_PORT;
+    expect(parsePort()).toBe(8080);
+    delete process.env.PORT;
     expect(parsePort()).toBe(3321);
+  });
+
+  it.each(['0', '65536', '-1', 'abc'])('rejects invalid TCP port %s', port => {
+    expect(() => parsePort(port)).toThrow('Invalid MCP port');
   });
 
   it('rejects --web-api on stdio transport', async () => {
