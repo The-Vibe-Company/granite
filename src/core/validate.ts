@@ -95,7 +95,7 @@ export function validateNoteAgainstType(
 
 /**
  * Stable short signature of the type registry — bumps when any type's
- * shape (fields, template, body_sections, warn_only, line_limit) changes.
+ * shape (fields, template, body_sections, indexed_fields, warn_only, line_limit) changes.
  */
 export function computeTypeRegistrySignature(config: GraniteConfig): string {
   const parts: string[] = [];
@@ -106,7 +106,7 @@ export function computeTypeRegistrySignature(config: GraniteConfig): string {
       .map(([fn, fd]) => `${fn}:${fd.type}${fd.required ? '!' : ''}`)
       .join(',');
     const sections = getRequiredSections(t).join('|');
-    parts.push(`${name}[${fields};${sections};wo=${t.warn_only ? 1 : 0};ll=${t.line_limit ?? 0}]`);
+    parts.push(`${name}[${fields};${sections};ix=${JSON.stringify(t.indexed_fields ?? [])};wo=${t.warn_only ? 1 : 0};ll=${t.line_limit ?? 0}]`);
   }
   return hashString(parts.join('\n')).slice(0, 8);
 }

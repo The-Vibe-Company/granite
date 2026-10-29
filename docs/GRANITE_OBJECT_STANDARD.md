@@ -201,9 +201,12 @@ If Granite exposes an MCP server, the split is:
 **Resources (raw reads, application-controlled):**
 - `granite://notes/{slug}` — read the source markdown for a note
 - `granite://vault/types` — read the note-type contract for the vault
+- `granite://assets/{filename}` — read an imported asset as text or a base64 blob
 
 **Public tools (intent-first, model-controlled):**
 - `granite_wakeup()` — load the compressed map of the vault
+- `granite_vault_types()` — read the same full type contract as `granite://vault/types`
+- `granite_read_resource(uri)` — read any resource, including concrete note and asset template URIs; returns embedded MCP resources with identical content
 - `granite_research_topic(query, limit?)` — discover relevant notes for a topic
 - `granite_capture_knowledge(...)` — capture new knowledge into the vault
 - `granite_understand_note(slug)` — inspect a note in graph context

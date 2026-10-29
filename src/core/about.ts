@@ -39,6 +39,8 @@ export interface AboutEntity {
   counts: { incoming: number; outgoing: number };
 }
 
+export type AboutDirection = 'both' | 'incoming' | 'outgoing';
+
 function tidyContext(value: string | null | undefined, limit = 160): string {
   const text = (value ?? '').replace(/\s+/g, ' ').trim();
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
@@ -93,10 +95,10 @@ export function aboutEntity(db: Database.Database, slug: string): AboutEntity | 
   if (!note) return undefined;
 
   const incomingRows = db
-    .prepare('SELECT source_slug AS slug, context FROM links WHERE target_slug = ?')
+    .prepare('SELECT source_slug AS slug, context FROM links WHERE target_slug = ? ORDER BY rowid')
     .all(slug) as Array<{ slug: string; context: string | null }>;
   const outgoingRows = db
-    .prepare('SELECT target_slug AS slug, context FROM links WHERE source_slug = ? AND target_slug IS NOT NULL')
+    .prepare('SELECT target_slug AS slug, context FROM links WHERE source_slug = ? AND target_slug IS NOT NULL ORDER BY rowid')
     .all(slug) as Array<{ slug: string; context: string | null }>;
 
   const incoming = collect(db, incomingRows);
@@ -192,24 +194,35 @@ export interface FilteredAbout extends AboutEntity {
  * describe what a caller is about to read. Keeping the unfiltered totals printed
  * "3 note(s) link here" directly above a two-note group.
  */
-export function filterAbout(entity: AboutEntity, types?: string[]): FilteredAbout {
+export function filterAbout(
+  entity: AboutEntity,
+  types?: string[],
+  direction: AboutDirection = 'both',
+): FilteredAbout {
   const wanted = types?.filter(Boolean) ?? [];
-  const unfiltered_counts = { ...entity.counts };
-  if (wanted.length === 0) return { ...entity, unfiltered_counts };
+  const originalCounts = (entity as FilteredAbout).unfiltered_counts ?? entity.counts;
+  const unfiltered_counts = { ...originalCounts };
+  const sourceIncoming: Record<string, EntityReference[]> = direction === 'outgoing' ? {} : entity.incoming;
+  const sourceOutgoing: Record<string, EntityReference[]> = direction === 'incoming' ? {} : entity.outgoing;
+
+  // Preserve the old object shape for the common unfiltered/bidirectional read. The
+  // direction-specific branch below deliberately creates empty groups for the omitted
+  // side so structured consumers can trust that `counts` and the groups agree.
+  if (wanted.length === 0 && direction === 'both') return { ...entity, unfiltered_counts };
 
   const keep = (group: Record<string, EntityReference[]>) =>
     Object.fromEntries(Object.entries(group).filter(([type]) => wanted.includes(type)));
   const count = (group: Record<string, EntityReference[]>) =>
     Object.values(group).reduce((total, list) => total + list.length, 0);
 
-  const incoming = keep(entity.incoming);
-  const outgoing = keep(entity.outgoing);
+  const incoming = wanted.length === 0 ? sourceIncoming : keep(sourceIncoming);
+  const outgoing = wanted.length === 0 ? sourceOutgoing : keep(sourceOutgoing);
   return {
     ...entity,
     incoming,
     outgoing,
     counts: { incoming: count(incoming), outgoing: count(outgoing) },
-    filtered_by: wanted,
+    ...(wanted.length > 0 ? { filtered_by: wanted } : {}),
     unfiltered_counts,
   };
 }
@@ -483,29 +496,72 @@ export function renderAboutMarkdown(
 ): string {
   const lines: string[] = [`# ${entity.title}`, '', `${entity.type} · ${entity.status}`, ''];
 
-  // `counts` is already filtered, so an entity that has references but none of the
-  // requested type is not the same as an entity nothing points at.
+  // A renderer can be called with a full entity (the CLI/tests do this) or with an
+  // entity already narrowed by `filterAbout` (the MCP structured result does this).
+  // Derive the displayed counts from the groups and the requested view so the prose can
+  // never claim that an omitted direction has references it is not showing.
+  const incomingOnly = options.incoming === true && options.outgoing !== true;
+  const outgoingOnly = options.outgoing === true && options.incoming !== true;
+  const showIncoming = !outgoingOnly;
+  const showOutgoing = !incomingOnly;
+  const count = (group: Record<string, EntityReference[]>) =>
+    Object.values(group).reduce((total, list) => total + list.length, 0);
+  const incomingCount = showIncoming ? count(entity.incoming) : 0;
+  const outgoingCount = showOutgoing ? count(entity.outgoing) : 0;
+  const selectedCount = incomingCount + outgoingCount;
+
+  // `unfiltered_counts` is retained specifically for empty/filter messages. It lets the
+  // renderer distinguish "no outgoing source notes" from "nothing in the vault points at
+  // this entity", even when the selected direction has no entries.
   const total = entity.unfiltered_counts ?? entity.counts;
-  const entityIsUnreferenced = total.incoming + total.outgoing === 0;
-  const filteredToNothing = entity.counts.incoming + entity.counts.outgoing === 0;
   const requested = entity.filtered_by?.join(', ');
 
-  if (filteredToNothing) {
-    if (entityIsUnreferenced) {
+  const directionHeader = incomingOnly
+    ? `${incomingCount} note(s) link here`
+    : outgoingOnly
+      ? `It links to ${outgoingCount} note(s)`
+      : `${incomingCount} note(s) link here · it links to ${outgoingCount}`;
+  lines.push(directionHeader, '');
+
+  if (selectedCount === 0) {
+    const totalCount = total.incoming + total.outgoing;
+    if (totalCount === 0) {
       lines.push('Nothing links to this note and it links to nothing.');
       lines.push('');
       lines.push('That is worth knowing: no other note leads here.');
+      return lines.join('\n');
+    }
+
+    const typeLabel = requested ? `${requested} note` : 'other note';
+    const referenceQualifier = requested ? ` ${typeLabel}` : '';
+    if (incomingOnly) {
+      lines.push(`There are no incoming${referenceQualifier} references to this note in the selected view.`);
+    } else if (outgoingOnly) {
+      lines.push(`This note has no outgoing${referenceQualifier} references in the selected view.`);
+    } else if (requested) {
+      // Keep the original wording for the common type-filter case, then state both
+      // directions so an outgoing-only entity is not described as globally unreferenced.
+      lines.push(`No ${typeLabel} references this one in the selected view.`);
     } else {
-      lines.push(`No ${requested} note references this one, though ${total.incoming} note(s) link here in total.`);
+      lines.push('No references appear in the selected view.');
+    }
+
+    if ((incomingOnly || outgoingOnly) && (total.incoming > 0 || total.outgoing > 0)) {
+      const totals: string[] = [];
+      if (total.incoming > 0) totals.push(`${total.incoming} incoming reference(s)`);
+      if (total.outgoing > 0) totals.push(`${total.outgoing} outgoing reference(s)`);
+      lines.push(`The full entity has ${totals.join(' and ')}.`);
+    } else if (total.incoming > 0 || total.outgoing > 0) {
+      const incomingTotal = total.incoming > 0
+        ? `${total.incoming} note(s) link here in total`
+        : 'No notes link here';
+      const outgoingTotal = total.outgoing > 0
+        ? `this note links to ${total.outgoing} note(s) in total`
+        : 'this note links to no other note';
+      lines.push(`${incomingTotal}; ${outgoingTotal}.`);
     }
     return lines.join('\n');
   }
-
-  lines.push(`${entity.counts.incoming} note(s) link here · it links to ${entity.counts.outgoing}`, '');
-
-  // Both sections are the default; `--incoming`/`--outgoing` narrow, they do not exclude.
-  const showIncoming = options.incoming || !options.outgoing;
-  const showOutgoing = options.outgoing || !options.incoming;
 
   const renderGroup = (label: string, grouped: Record<string, EntityReference[]>) => {
     const entries = Object.entries(grouped).filter(([, list]) => list.length > 0);

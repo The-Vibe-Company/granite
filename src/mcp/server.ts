@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import net from 'node:net';
-import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import * as z from 'zod/v4';
@@ -14,7 +14,6 @@ import {
   renderGardenPlanMarkdown,
   renderImportDocumentMarkdown,
   renderMutationResultMarkdown,
-  renderNoteTypesMarkdown,
   renderQueryResultsMarkdown,
   renderSearchResultsMarkdown,
   renderEntitiesMarkdown,
@@ -37,6 +36,7 @@ import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
 import type { GraniteMcpRuntime } from './runtime.js';
 import type { Query } from '../core/query.js';
+import { createGraniteResources, VAULT_TYPES_URI } from './resources.js';
 
 const readOnlyAnnotations = {
   readOnlyHint: true,
@@ -95,6 +95,8 @@ function buildServerInstructions(runtime: GraniteMcpRuntime, role: McpAccessRole
     'Granite exposes a small public MCP surface:',
     '',
     '- **granite_wakeup** — load the map of the vault before doing work',
+    '- **granite_vault_types** — read the full vault note-type contracts',
+    '- **granite_read_resource** — read any Granite resource by URI, including note and asset templates',
     '- **granite_facts** — read the fact ledger: what is current, superseded, or contradictory',
     '- **granite_entities** — find notes that may describe the same thing',
     '- **granite_research_topic** — discover relevant notes for a topic',
@@ -123,7 +125,7 @@ function buildServerInstructions(runtime: GraniteMcpRuntime, role: McpAccessRole
     '',
     `## Note Types (vault registry, sig=${signature})`,
     '',
-    `This vault declares ${types.length} type${types.length === 1 ? '' : 's'}. Default: \`${defaultType}\`. Full contracts (frontmatter fields, body sections, templates, canonical examples) are in the \`granite://vault/types\` resource — fetch it before writing if unsure.`,
+    `This vault declares ${types.length} type${types.length === 1 ? '' : 's'}. Default: \`${defaultType}\`. Full contracts (frontmatter fields, body sections, templates, canonical examples) are in the \`granite://vault/types\` resource (also available through \`granite_vault_types\` or \`granite_read_resource\`) — fetch it before writing if unsure.`,
     '',
   ];
 
@@ -185,8 +187,15 @@ export function createGraniteMcpServer(
     },
   );
 
-  registerTools(server, runtime, role);
-  registerResources(server, runtime);
+  const resources = createGraniteResources(runtime);
+  for (const resource of resources.definitions) {
+    if (resource.template) {
+      server.registerResource(resource.name, resource.template, resource.metadata, resource.read);
+    } else {
+      server.registerResource(resource.name, resource.uri, resource.metadata, uri => resource.read(uri, {}));
+    }
+  }
+  registerTools(server, runtime, role, resources);
   if (role === 'write') {
     registerPrompts(server, runtime);
   }
@@ -284,7 +293,12 @@ function buildTypeSchema(runtime: GraniteMcpRuntime, describe: string) {
   );
 }
 
-function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpAccessRole): void {
+function registerTools(
+  server: McpServer,
+  runtime: GraniteMcpRuntime,
+  role: McpAccessRole,
+  resources: ReturnType<typeof createGraniteResources>,
+): void {
   const canWrite = role === 'write';
   const canParseDocuments = !isDocumentParsingDisabled();
 
@@ -315,12 +329,31 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
 
   server.registerTool('granite_wakeup', {
     title: 'Granite Wakeup',
-    description: 'Load a compressed AAAK snapshot of the entire vault into context. Call this at the start of every session to know what exists, how notes cluster, and what changed recently. Costs ~200-500 tokens instead of reading every note.',
+    description: 'Load a compressed AAAK snapshot of the entire vault into context. Call this at the start of every session to know what exists, how notes cluster, and what changed recently. Output size grows with the vault and may reach tens of kilobytes. Call granite_vault_types for full note-type contracts (body sections, required fields, indexed_fields), and granite_read_resource with a granite:// URI to read any resource or resource template.',
     annotations: readOnlyAnnotations,
   }, async () => {
     const result = runtime.wakeup();
     return toolResult(renderWakeupMarkdown(result));
   });
+
+  const readResource = (uri: string) => ({
+    content: resources.read(uri).contents.map(resource => ({ type: 'resource' as const, resource })),
+  });
+
+  server.registerTool('granite_vault_types', {
+    title: 'Granite Vault Types',
+    description: 'Read the full note-type contracts: types, body sections, required frontmatter fields, templates, examples, and indexed_fields. Returns the same content as granite://vault/types, for clients that only expose tools.',
+    annotations: readOnlyAnnotations,
+  }, async () => readResource(VAULT_TYPES_URI));
+
+  server.registerTool('granite_read_resource', {
+    title: 'Read Granite Resource',
+    description: `Read any Granite resource by URI, including parameterized resource templates. Supported URIs/templates: ${resources.definitions.map(resource => resource.uri).join(', ')}. Returns embedded MCP resources preserving URI, MIME type, and text or base64 blob.`,
+    inputSchema: {
+      uri: z.string().describe('Concrete Granite resource URI; substitute template parameters and percent-encode slugs or filenames as needed.'),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ uri }) => readResource(uri));
 
   server.registerTool('granite_research_topic', {
     title: 'Research Granite Topic',
@@ -339,7 +372,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     title: 'Plan Granite Garden',
     description: 'Compute a deterministic, prioritized garden work list. Use this to decide what in the whole vault, or around one anchor note, should be refreshed, connected, deduplicated, or synthesized next.',
     inputSchema: {
-      anchor_slug: z.string().optional().describe('Optional note slug. When provided, the plan focuses on the anchor note, its local graph neighborhood, and its cluster.'),
+      anchor_slug: z.string().optional().describe('Optional note slug. When provided, the plan focuses on the anchor note, its graph neighborhood within two hops. Opportunities are ordered by distance to the anchor before priority.'),
       limit: z.number().int().min(1).max(20).optional().describe('Maximum number of opportunities to return. Defaults to 5.'),
     },
     annotations: readOnlyAnnotations,
@@ -519,13 +552,13 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       type: z.string(),
       status: z.string(),
       counts: z.object({
-        incoming: z.number().int().describe('References to this entity, after any type filter.'),
-        outgoing: z.number().int().describe('References from this entity, after any type filter.'),
+        incoming: z.number().int().describe('References to this entity, after type and direction filters.'),
+        outgoing: z.number().int().describe('References from this entity, after type and direction filters.'),
       }),
       unfiltered_counts: z.object({
         incoming: z.number().int(),
         outgoing: z.number().int(),
-      }).optional().describe('Totals before the type filter, so "no reference of that type" is not confused with "no references".'),
+      }).optional().describe('Totals before type and direction filters, so "no reference of that type" is not confused with "no references".'),
       incoming: z.record(z.string(), z.array(z.object({
         slug: z.string(),
         title: z.string(),
@@ -542,7 +575,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
     },
     annotations: readOnlyAnnotations,
   }, async ({ slug, types, direction }) => {
-    const entity = runtime.readEntity(slug, { types });
+    const entity = runtime.readEntity(slug, { types, direction });
     return {
       content: [{
         type: 'text' as const,
@@ -651,7 +684,7 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
       `# ${verdict.verdict?.toUpperCase() ?? 'NO VERDICT'}`,
       '',
       `Top relevance ${verdict.top_score} (answered at ${ANSWERED_AT}, absent below ${ABSENT_BELOW}), `
-      + `pool Noul ${verdict.pool_has_answer ?? 'n/a'} reported as context only.`,
+      + `Pool answer probability: ${verdict.pool_has_answer ?? 'n/a'} (context only).`,
       '',
     ];
     if (verdict.reason) lines.push(verdict.reason, '');
@@ -776,70 +809,6 @@ function registerTools(server: McpServer, runtime: GraniteMcpRuntime, role: McpA
   }, async ({ slug, mode }) => {
     const result = runtime.disposeNote(slug, mode ?? 'archive');
     return toolResult(renderDisposeNoteMarkdown(result));
-  });
-}
-
-function registerResources(server: McpServer, runtime: GraniteMcpRuntime): void {
-  server.registerResource('granite-note-types', 'granite://vault/types', {
-    title: 'Granite Note Types',
-    description: 'Structured list of the note types configured in the current vault.',
-    mimeType: 'text/markdown',
-  }, async () => ({
-    contents: [{
-      uri: 'granite://vault/types',
-      text: renderNoteTypesMarkdown(runtime.listNoteTypes(), runtime.getDefaultNoteType()),
-      mimeType: 'text/markdown',
-    }],
-  }));
-
-  const noteTemplate = new ResourceTemplate('granite://notes/{slug}', {
-    list: undefined,
-    complete: {
-      slug: async (value) => runtime.completeSlugs(value),
-    },
-  });
-
-  server.registerResource('granite-note', noteTemplate, {
-    title: 'Granite Note',
-    description: 'Read a Granite note as markdown with YAML frontmatter.',
-    mimeType: 'text/markdown',
-  }, async (uri, variables) => {
-    const variable = variables.slug;
-    const slug = Array.isArray(variable) ? variable[0] : variable;
-    if (!slug) {
-      throw new Error('Resource URI is missing the note slug.');
-    }
-
-    return {
-      contents: [{
-        uri: uri.toString(),
-        text: runtime.readNoteMarkdown(decodeURIComponent(slug)),
-        mimeType: 'text/markdown',
-      }],
-    };
-  });
-
-  const assetTemplate = new ResourceTemplate('granite://assets/{filename}', {
-    list: undefined,
-    complete: {
-      filename: async (value) => runtime.completeAssets(value),
-    },
-  });
-
-  server.registerResource('granite-asset', assetTemplate, {
-    title: 'Granite Asset',
-    description: 'Read an imported Granite asset. Text files are returned as text; binary files are returned as base64 blobs.',
-    mimeType: 'application/octet-stream',
-  }, async (_uri, variables) => {
-    const variable = variables.filename;
-    const fileName = Array.isArray(variable) ? variable[0] : variable;
-    if (!fileName) {
-      throw new Error('Resource URI is missing the asset filename.');
-    }
-
-    return {
-      contents: [runtime.readAsset(decodeURIComponent(fileName))],
-    };
   });
 }
 

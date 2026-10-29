@@ -130,4 +130,27 @@ describe('compileContext', () => {
     expect(backlinks!.entries.map(e => e.slug)).toContain('source');
     db.close();
   });
+
+  it('deduplicates repeated mentions before applying the backlink limit', () => {
+    createNote(tmpDir, config, 'note', 'Target', 'Target note.\n');
+    createNote(
+      tmpDir,
+      config,
+      'note',
+      'Source',
+      'First context for [[target]].\nSecond context for [[target]].\n',
+    );
+    createNote(tmpDir, config, 'note', 'Z Other source', 'Another note linking [[target]].\n');
+
+    const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
+    rebuildIndex(tmpDir, config, db);
+
+    const ctx = compileContext(db, config, { slug: 'target', limit: 2 });
+    const backlinks = ctx.sections.find(s => s.heading === 'Backlinks')!;
+    expect(backlinks.entries).toHaveLength(2);
+    expect(backlinks.entries.map(entry => entry.slug)).toEqual(['source', 'z-other-source']);
+    const source = backlinks.entries.find(entry => entry.slug === 'source')!;
+    expect(source.reason).toContain('First context');
+    db.close();
+  });
 });

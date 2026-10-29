@@ -140,6 +140,13 @@ describe('computeTypeRegistrySignature', () => {
     expect(computeTypeRegistrySignature(a)).not.toBe(computeTypeRegistrySignature(b));
   });
 
+  it('changes when indexed_fields changes', () => {
+    const config = configWith(false);
+    const before = computeTypeRegistrySignature(config);
+    config.note_types.meeting.indexed_fields = ['date'];
+    expect(computeTypeRegistrySignature(config)).not.toBe(before);
+  });
+
   it('is stable for semantically identical configs', () => {
     expect(computeTypeRegistrySignature(configWith(false))).toBe(computeTypeRegistrySignature(configWith(false)));
   });

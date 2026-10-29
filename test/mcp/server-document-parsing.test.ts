@@ -49,6 +49,8 @@ describe('MCP server with document parsing disabled', () => {
     expect(toolNames).not.toContain('granite_import_document');
     // The rest of the surface is intact.
     expect(toolNames).toContain('granite_wakeup');
+    expect(toolNames).toContain('granite_vault_types');
+    expect(toolNames).toContain('granite_read_resource');
     expect(toolNames).toContain('granite_capture_knowledge');
     expect(toolNames).toContain('granite_revise_note');
   });
