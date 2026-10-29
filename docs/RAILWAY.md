@@ -28,7 +28,8 @@ contents are included.
    and builds the included Dockerfile. Leave the start command
    unset so Docker's entrypoint initializes the vault and starts MCP.
 2. Attach a **persistent volume at `/vault`** to that service before deploying.
-   The Docker `VOLUME` instruction does not provision Railway storage.
+   Railway rejects Dockerfile `VOLUME` instructions before the build starts, so
+   storage must be attached in Railway rather than declared in the Dockerfile.
 3. Set these service variables in Railway:
 
    | Variable | Value |

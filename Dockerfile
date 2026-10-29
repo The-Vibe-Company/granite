@@ -33,7 +33,7 @@ RUN chmod +x /app/dist/index.js /usr/local/bin/docker-entrypoint.sh \
   && mkdir -p /vault
 
 EXPOSE 3321
-VOLUME ["/vault"]
+# Railway rejects VOLUME instructions; attach /vault in Railway (or docker run -v).
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["granite", "mcp", "--transport", "http", "--host", "0.0.0.0"]
