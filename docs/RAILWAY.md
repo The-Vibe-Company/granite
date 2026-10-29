@@ -5,10 +5,30 @@ an authenticated, read/write MCP endpoint. The cloud volume is the source of
 truth: your computer does not need to be running, and no local vault or sync
 process is required by MCP clients.
 
-## Deploy from GitHub
+## Deploy with one button
 
-1. Create a Railway service from this repository (or your fork). Railway reads
-   `railway.json` and builds the included Dockerfile. Leave the start command
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/uTwCwu)
+
+Choose your Railway workspace, enter your own `TYPESAFE_API_KEY`, then deploy.
+The template creates the Granite service, a `/vault` volume, an HTTPS endpoint,
+and a fresh random MCP bearer token in your account. Retrieve
+`GRANITE_MCP_TOKEN` from your service variables and connect your agent to
+`https://<your-domain>/mcp` with `Authorization: Bearer <your-token>`.
+
+The template follows this repository's `main` branch. **Until PR #88 is merged,
+wait before deploying:** it contains the container fix and Railway startup
+support. The button opens a real template; no live vault has been deployed as
+part of this change.
+
+Service configuration lives in the Railway template. No `railway.json` or
+`railway.toml` is committed; each user can adjust their own Railway settings.
+Only the TypeSafe key requires user input. No maintainer credentials or vault
+contents are included.
+
+## Alternative: deploy directly from GitHub
+
+1. Create a Railway service from this repository (or your fork). Railway detects
+   and builds the included Dockerfile. Leave the start command
    unset so Docker's entrypoint initializes the vault and starts MCP.
 2. Attach a **persistent volume at `/vault`** to that service before deploying.
    The Docker `VOLUME` instruction does not provision Railway storage.
@@ -31,7 +51,9 @@ process is required by MCP clients.
    `Authorization: Bearer <your-token>` on every request. Use the client's
    secret/environment configuration; do not commit the token.
 
-`railway.json` configures `/health`, a bounded restart policy, and one replica.
+For a direct GitHub deployment, set the healthcheck to `/health`, the restart
+policy to **On Failure** with 3 retries, and keep one replica in Railway. The
+shared template already carries these settings.
 The container initializes a new vault only when `granite.yml` is absent and
 reuses an existing vault on restart. Do not override the startup command with
 `granite init` or a background daemon.
@@ -86,11 +108,11 @@ backup. Keep an independent export as well: a persistent volume is not a backup.
 Railway currently does not support replicas with volumes and may briefly stop
 the service during redeploys. Keep this deployment at one replica.
 
-The deployment config does not create volumes, domains, secrets or backup
-schedules; these are project resources configured in Railway. `granite deploy`
+The shared template provisions the service, volume, HTTP proxy and variables.
+Backup schedules still need to be enabled on each deployed volume. `granite deploy`
 continues to manage Fly.io Sprites; Railway deployments use this repository and
 Railway's own deployment controls.
 
 References: [Railway volumes](https://docs.railway.com/volumes),
 [backups](https://docs.railway.com/volumes/backups),
-[config as code](https://docs.railway.com/config-as-code).
+[creating templates](https://docs.railway.com/templates/create).

@@ -21,3 +21,7 @@ __pycache__/
 # Python bytecode from optional skill helpers
 __pycache__/
 *.py[cod]
+
+# Railway service settings live in the shared template, not the source repo
+/railway.json
+/railway.toml

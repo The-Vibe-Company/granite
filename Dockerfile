@@ -4,11 +4,15 @@ WORKDIR /app
 
 ENV HUSKY=0
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+RUN npm run build && npm prune --omit=dev --ignore-scripts
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -18,9 +22,7 @@ ENV NODE_ENV=production \
     GRANITE_VAULT=/vault
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts \
-  && npm rebuild better-sqlite3 \
-  && npm cache clean --force
+COPY --from=build /app/node_modules ./node_modules
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/templates ./templates

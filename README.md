@@ -226,7 +226,9 @@ claude mcp add --transport http granite https://<your-sprite>.sprites.app/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
-**Railway:** deploy a private read/write MCP server from this repository with a persistent volume and bearer authentication. See [the Railway deployment guide](docs/RAILWAY.md).
+**Railway:** deploy your own private read/write MCP vault with persistent storage and an automatically generated access token. Enter your TypeSafe key in Railway; the template handles the infrastructure. See [the deployment guide](docs/RAILWAY.md).
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/uTwCwu)
 
 Multiple named instances, bulk upgrades, token rotation, and self-hosting the HTTP MCP server (a generic `Dockerfile` is included) are covered in [docs/DEPLOY.md](docs/DEPLOY.md).
 
