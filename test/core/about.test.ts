@@ -256,6 +256,22 @@ describe('filterAbout and the shared markdown renderers', () => {
     d.close();
   });
 
+  it('filters direction before recomputing structured counts', () => {
+    const d = db();
+    const incoming = filterAbout(aboutEntity(d, 'monka-care')!, undefined, 'incoming');
+    expect(Object.keys(incoming.incoming).sort()).toEqual(['meeting', 'person', 'synthesis']);
+    expect(incoming.outgoing).toEqual({});
+    expect(incoming.counts).toEqual({ incoming: 3, outgoing: 0 });
+    expect(incoming.unfiltered_counts).toEqual({ incoming: 3, outgoing: 1 });
+
+    const outgoing = filterAbout(aboutEntity(d, 'monka-care')!, undefined, 'outgoing');
+    expect(outgoing.incoming).toEqual({});
+    expect(Object.keys(outgoing.outgoing)).toEqual(['person']);
+    expect(outgoing.counts).toEqual({ incoming: 0, outgoing: 1 });
+    expect(outgoing.unfiltered_counts).toEqual({ incoming: 3, outgoing: 1 });
+    d.close();
+  });
+
   it('renders the groups with their type and the context of each reference', () => {
     const d = db();
     const markdown = renderAboutMarkdown(filterAbout(aboutEntity(d, 'monka-care')!), {});
@@ -279,6 +295,14 @@ describe('filterAbout and the shared markdown renderers', () => {
     d.close();
   });
 
+  it('renders directional counts instead of the omitted side', () => {
+    const d = db();
+    const markdown = renderAboutMarkdown(filterAbout(aboutEntity(d, 'monka-care')!), { outgoing: true });
+    expect(markdown).toContain('It links to 1 note(s)');
+    expect(markdown).not.toContain('3 note(s) link here');
+    d.close();
+  });
+
   it('says an entity is unreferenced only when it actually is', () => {
     const d = db();
     d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)')
@@ -295,6 +319,34 @@ describe('filterAbout and the shared markdown renderers', () => {
     expect(markdown).not.toContain('Nothing links to this note');
     expect(markdown).toContain('No source note references this one');
     expect(markdown).toContain('3 note(s) link here in total');
+    d.close();
+  });
+
+  it('does not describe an incoming-only entity as globally unreferenced in an outgoing view', () => {
+    const d = db();
+    d.prepare('INSERT INTO notes VALUES (?,?,?,?,?)')
+      .run('incoming-only', 'Incoming only', 'note', 'active', 'Nothing leaves this note.');
+    d.prepare('INSERT INTO links VALUES (?,?,?,?)')
+      .run('meeting-a', 'incoming-only', 'incoming-only', 'See [[incoming-only]].');
+
+    const entity = filterAbout(aboutEntity(d, 'incoming-only')!, undefined, 'outgoing');
+    expect(entity.counts).toEqual({ incoming: 0, outgoing: 0 });
+    expect(entity.unfiltered_counts).toEqual({ incoming: 1, outgoing: 0 });
+    const markdown = renderAboutMarkdown(entity, { outgoing: true });
+    expect(markdown).toContain('It links to 0 note(s)');
+    expect(markdown).toContain('no outgoing');
+    expect(markdown).not.toContain('Nothing links to this note');
+    d.close();
+  });
+
+  it('keeps opposite-direction totals truthful when a directional type filter matches nothing', () => {
+    const d = db();
+    const entity = filterAbout(aboutEntity(d, 'monka-care')!, ['source'], 'outgoing');
+    const markdown = renderAboutMarkdown(entity, { outgoing: true });
+    expect(entity.counts).toEqual({ incoming: 0, outgoing: 0 });
+    expect(markdown).toContain('source note');
+    expect(markdown).toContain('3 incoming reference(s) and 1 outgoing reference(s)');
+    expect(markdown).not.toContain('Nothing links to this note');
     d.close();
   });
 

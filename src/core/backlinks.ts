@@ -9,8 +9,14 @@ export function getBacklinks(db: Database.Database, slug: string): BacklinkEntry
       l.context
     FROM links l
     JOIN notes n ON n.slug = l.source_slug
-    WHERE l.target_slug = ?
-    ORDER BY n.title
+    -- Keep the first indexed context for each source note, regardless of mention count.
+    WHERE l.rowid IN (
+      SELECT MIN(rowid)
+      FROM links
+      WHERE target_slug = ?
+      GROUP BY source_slug
+    )
+    ORDER BY n.title, l.source_slug
   `);
 
   return stmt.all(slug) as BacklinkEntry[];

@@ -109,6 +109,7 @@ export interface NoteTypeInfo {
   fields?: GraniteConfig['note_types'][string]['fields'];
   template?: string;
   body_sections?: string[];
+  indexed_fields?: string[];
   example_slug?: string;
   frontmatter_defaults?: Record<string, unknown>;
 }
@@ -400,6 +401,7 @@ export class GraniteMcpRuntime {
       fields: typeConfig.fields,
       template: typeConfig.template,
       body_sections: getRequiredSections(typeConfig),
+      indexed_fields: typeConfig.indexed_fields,
       example_slug: typeConfig.example_slug ?? recentByType.get(name),
       frontmatter_defaults: typeConfig.frontmatter_defaults as Record<string, unknown> | undefined,
     }));
@@ -520,14 +522,14 @@ export class GraniteMcpRuntime {
    * This is the graph access path: it answers "what does the vault know about X" without
    * depending on the wording of the answer, which is what makes it language-independent.
    */
-  readEntity(slug: string, options: { types?: string[] } = {}) {
+  readEntity(slug: string, options: { types?: string[]; direction?: 'both' | 'incoming' | 'outgoing' } = {}) {
     this.requireNote(slug);
     this.refreshIndex();
     const entity = readAboutEntity(this.db, slug);
     // `readAboutEntity` returns undefined only for a slug with no row, and `requireNote`
     // above has already rejected that, so reaching here with nothing would be a real bug.
     if (!entity) throw new Error(`Entity not found: ${slug}`);
-    return filterAbout(entity, options.types);
+    return filterAbout(entity, options.types, options.direction);
   }
 
   /**
@@ -803,7 +805,7 @@ export class GraniteMcpRuntime {
       };
     }
 
-    const plan = this.buildGardenPlan({}, { applyLimit: false, applyAdjudications: false });
+    const plan = this.buildGardenPlan({}, { applyLimit: false, applyAdjudications: false, deduplicate: false });
     const opportunity = plan.opportunities.find(item => item.id === input.opportunity_id);
     if (!opportunity) {
       throw new Error(`Garden opportunity not found: ${input.opportunity_id}`);
@@ -850,7 +852,7 @@ export class GraniteMcpRuntime {
 
   private buildGardenPlan(
     input: GardenPlanInput = {},
-    options: { applyLimit?: boolean; applyAdjudications?: boolean } = {},
+    options: { applyLimit?: boolean; applyAdjudications?: boolean; deduplicate?: boolean } = {},
   ): GardenPlan {
     const generatedAt = new Date().toISOString();
     const notes = this.readAllNotes().filter(note => note.frontmatter.status !== 'archived');
@@ -874,13 +876,12 @@ export class GraniteMcpRuntime {
       }
     }
 
-    const scopeSlugs = input.anchor_slug
-      ? buildAnchorScopeSlugs(input.anchor_slug, graph, wakeup.clusters)
-      : new Set(notes.map(note => note.slug));
+    const anchorDistances = input.anchor_slug ? buildAnchorDistances(input.anchor_slug, graph) : undefined;
+    const scopeSlugs = anchorDistances ? new Set(anchorDistances.keys()) : new Set(notes.map(note => note.slug));
     const scopeNotes = notes.filter(note => scopeSlugs.has(note.slug));
-    const scopeClusters = input.anchor_slug
-      ? wakeup.clusters.filter(cluster => cluster.slugs.includes(input.anchor_slug!))
-      : wakeup.clusters.filter(cluster => cluster.slugs.some(slug => scopeSlugs.has(slug)));
+    // Preserve cluster identities across local/global plans; only wholly local targets
+    // are eligible below, so an anchor cannot turn into a task for a distant cluster hub.
+    const scopeClusters = wakeup.clusters.filter(cluster => cluster.slugs.some(slug => scopeSlugs.has(slug)));
     const limit = clampLimit(input.limit ?? 5, 20);
 
     const adjudicationById = options.applyAdjudications === false
@@ -889,7 +890,7 @@ export class GraniteMcpRuntime {
         this.getActiveGardenAdjudications(noteBySlug).map(entry => [entry.opportunity_id, entry] as const),
       );
 
-    const opportunities = dedupeGardenOpportunities([
+    const candidates = [
       ...this.buildDuplicatePairOpportunities(scopeNotes, graph),
       ...this.buildMissingSynthesisClusterOpportunities(scopeClusters, noteBySlug, graph),
       ...this.buildStaleSynthesisOpportunities(scopeNotes, noteBySlug, graph, clusterBySlug),
@@ -898,7 +899,15 @@ export class GraniteMcpRuntime {
       ...this.buildDraftDebtOpportunities(scopeNotes),
       ...this.buildOrphanWithCandidatesOpportunities(scopeNotes, noteBySlug, graph),
       ...this.buildThinImportantNoteOpportunities(scopeNotes, noteBySlug, graph),
-    ].map(opportunity => applyGardenAdjudication(opportunity, adjudicationById.get(opportunity.id))));
+    ].filter(opportunity => opportunity.targets.every(target => scopeSlugs.has(target.slug))).map(opportunity => {
+      if (anchorDistances) {
+        opportunity.evidence.metrics.anchor_distance = gardenOpportunityDistance(opportunity, anchorDistances);
+      }
+      return applyGardenAdjudication(opportunity, adjudicationById.get(opportunity.id));
+    });
+    // Adjudication resolves the raw candidate set: local distance ordering can surface
+    // work that the global priority ordering would have suppressed during deduplication.
+    const opportunities = options.deduplicate === false ? candidates : dedupeGardenOpportunities(candidates, anchorDistances);
     const limitedOpportunities = options.applyLimit === false ? opportunities : opportunities.slice(0, limit);
 
     return {
@@ -1988,37 +1997,26 @@ function hasMetadataMutations(
   );
 }
 
-function buildAnchorScopeSlugs(
-  anchorSlug: string,
-  graph: GraphState,
-  clusters: Array<{ tag: string; slugs: string[]; hub: string | null }>,
-): Set<string> {
-  const scope = new Set<string>([anchorSlug]);
-
-  for (const cluster of clusters) {
-    if (cluster.slugs.includes(anchorSlug)) {
-      for (const slug of cluster.slugs) {
-        scope.add(slug);
+/** Local garden work follows explicit links/derivations, not broad shared tags. */
+function buildAnchorDistances(anchorSlug: string, graph: GraphState): Map<string, number> {
+  const distances = new Map<string, number>([[anchorSlug, 0]]);
+  let frontier = [anchorSlug];
+  for (let distance = 1; distance <= 2; distance += 1) {
+    const next: string[] = [];
+    for (const slug of frontier) {
+      for (const neighbor of getNeighborSlugs(slug, graph)) {
+        if (distances.has(neighbor)) continue;
+        distances.set(neighbor, distance);
+        next.push(neighbor);
       }
     }
+    frontier = next;
   }
+  return distances;
+}
 
-  for (const slug of graph.inbound.get(anchorSlug) ?? []) {
-    scope.add(slug);
-  }
-  for (const slug of graph.outbound.get(anchorSlug) ?? []) {
-    scope.add(slug);
-  }
-  for (const slug of graph.derivedChildren.get(anchorSlug) ?? []) {
-    scope.add(slug);
-  }
-  for (const [parentSlug, children] of graph.derivedChildren.entries()) {
-    if (children.has(anchorSlug)) {
-      scope.add(parentSlug);
-    }
-  }
-
-  return scope;
+function gardenOpportunityDistance(opportunity: GardenPlanOpportunity, distances: Map<string, number>): number {
+  return Math.min(...opportunity.targets.map(target => distances.get(target.slug) ?? Number.MAX_SAFE_INTEGER));
 }
 
 function createGardenOpportunity(input: {
@@ -2063,9 +2061,13 @@ function buildGardenOperatorHint(opportunities: GardenPlanOpportunity[], anchorS
   return `Start with ${targetTitles}: ${top.why_now}`;
 }
 
-function dedupeGardenOpportunities(opportunities: GardenPlanOpportunity[]): GardenPlanOpportunity[] {
+function dedupeGardenOpportunities(
+  opportunities: GardenPlanOpportunity[],
+  anchorDistances?: Map<string, number>,
+): GardenPlanOpportunity[] {
   const sorted = [...opportunities].sort((a, b) =>
-    b.priority_effective - a.priority_effective
+    (anchorDistances ? gardenOpportunityDistance(a, anchorDistances) - gardenOpportunityDistance(b, anchorDistances) : 0)
+    || b.priority_effective - a.priority_effective
     || b.priority_raw - a.priority_raw
     || a.id.localeCompare(b.id),
   );

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { writeDefaultConfig, loadConfig } from '../../src/core/config.js';
@@ -262,6 +262,42 @@ describe('MCP graph access tools', () => {
     const output = (answer?.outputSchema as { properties?: object }).properties ?? {};
     expect(Object.keys(output)).toContain('verdict');
     expect(Object.keys(output)).toContain('recorded' in output ? 'recorded' : 'ranked');
+  });
+
+  it('labels the pool probability clearly in an answer', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      answers: { 'rel::kickoff': { score: 3 }, pool_has_answer: { noul: 0.08 } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    try {
+      const result = await client.callTool({ name: 'granite_answer', arguments: { anchor: 'monka-care', question: 'What was discussed?' } });
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain('Pool answer probability: 0.08 (context only)');
+      expect(textOf(result)).not.toContain('pool Noul');
+      expect(result.structuredContent?.pool_has_answer).toBe(0.08);
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it('lists outgoing notes with matching structured counts', async () => {
+    const config = loadConfig(tmpDir);
+    fs.appendFileSync(path.join(tmpDir, config.note_types.organization.folder, 'monka-care.md'), '\nSee [[kickoff]].\n');
+    const result = await client.callTool({ name: 'granite_about', arguments: { slug: 'monka-care', direction: 'outgoing' } });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent?.counts).toEqual({ incoming: 0, outgoing: 1 });
+    expect(result.structuredContent?.incoming).toEqual({});
+    expect(result.structuredContent?.unfiltered_counts).toEqual({ incoming: 3, outgoing: 1 });
+    expect(textOf(result)).toContain('## References — meeting (1)');
+    expect(textOf(result)).toContain('`kickoff`');
+    expect(textOf(result)).not.toContain('3 note(s) link here');
+  });
+
+  it('returns direction-filtered about counts and an explicit empty outgoing view', async () => {
+    const result = await client.callTool({ name: 'granite_about', arguments: { slug: 'monka-care', direction: 'outgoing' } });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent?.counts).toEqual({ incoming: 0, outgoing: 0 });
+    expect(result.structuredContent?.incoming).toEqual({});
+    expect(result.structuredContent?.unfiltered_counts).toEqual({ incoming: 3, outgoing: 0 });
+    expect(textOf(result)).toContain('no outgoing');
+    expect(textOf(result)).not.toContain('3 note(s) link here ·');
   });
 
   it('declares an output schema for both tools', async () => {

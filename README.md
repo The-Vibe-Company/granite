@@ -177,14 +177,16 @@ One line connects any MCP-capable agent to your vault:
 claude mcp add granite -- granite mcp --vault ~/.granite
 ```
 
-The surface is intention-first — fourteen tools organized around the workflow, not around files:
+The surface is intention-first — tools organized around the workflow, not around files:
 
 | Intent     | Tools                                                                                                          |
 |------------|----------------------------------------------------------------------------------------------------------------|
-| **Orient** | `granite_wakeup` · `granite_research_topic` · `granite_resolve`                                                  |
-| **Read**   | `granite_query` · `granite_compile_context` · `granite_understand_note` · `granite_extract_document`             |
+| **Orient** | `granite_wakeup` · `granite_vault_types` · `granite_research_topic` · `granite_resolve`                                                  |
+| **Read**   | `granite_read_resource` · `granite_query` · `granite_compile_context` · `granite_understand_note` · `granite_extract_document`             |
 | **Write**  | `granite_capture_knowledge` · `granite_import_document` · `granite_revise_note` · `granite_dispose_note`         |
 | **Garden** | `granite_plan_garden` · `granite_adjudicate_garden_opportunity` · `granite_list_garden_adjudications`            |
+
+For clients that only expose tools, call `granite_vault_types` for the full vault type contract (including body sections, required fields, and `indexed_fields`), or `granite_read_resource({ uri })` for any resource: `granite://vault/types`, `granite://notes/{slug}`, or `granite://assets/{filename}`. Substitute and percent-encode template parameters. Both tools return embedded MCP resources with the same URI, MIME type, and text or base64 blob as the resource interface; the existing resources remain available.
 
 Plus three prompts for the higher-level workflows (`granite_refine_note`, `granite_process_inbox`, `granite_compile_topic`), and resources for raw note and type-contract access. Start the server with `--role read` when an agent should inspect without mutating. An HTTP transport with bearer-token auth is available for remote setups — see [docs/DEPLOY.md](docs/DEPLOY.md).
 

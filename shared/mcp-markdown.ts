@@ -84,6 +84,7 @@ interface NoteTypeLike {
   }>;
   template?: string;
   body_sections?: string[];
+  indexed_fields?: string[];
   example_slug?: string;
   frontmatter_defaults?: Record<string, unknown>;
 }
@@ -263,6 +264,10 @@ export function renderNoteTypesMarkdown(noteTypes: NoteTypeLike[], defaultType?:
     if (noteType.body_sections && noteType.body_sections.length > 0) {
       lines.push('', `### Body sections`);
       lines.push(noteType.body_sections.map(s => `\`${escapeCell(s)}\``).join(' → '));
+    }
+
+    if (noteType.indexed_fields && noteType.indexed_fields.length > 0) {
+      lines.push('', '### indexed_fields', noteType.indexed_fields.map(field => `\`${escapeCell(field)}\``).join(', '));
     }
 
     if (noteType.template && noteType.template.trim().length > 0) {
