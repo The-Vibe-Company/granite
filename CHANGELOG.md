@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.0...granite-mem-v0.2.1) (2026-10-29)
+
+
+### Features
+
+* **deploy:** support private Railway MCP hosting ([#88](https://github.com/The-Vibe-Company/granite/issues/88)) ([bcce6a4](https://github.com/The-Vibe-Company/granite/commit/bcce6a4ad5043432c5cdae77542264179d5f4c8a))
+* **migrate:** verify and migrate existing vaults to Railway ([#89](https://github.com/The-Vibe-Company/granite/issues/89)) ([85b2a06](https://github.com/The-Vibe-Company/granite/commit/85b2a06af1afb8f1a0a7b817ebcac5af706c17d4))
+
+
+### Bug Fixes
+
+* **pool:** a default large enough to hold the answer, and the request ceiling ([#84](https://github.com/The-Vibe-Company/granite/issues/84)) ([7da8f86](https://github.com/The-Vibe-Company/granite/commit/7da8f8699419412bd1e03fa861a7f42cb3b7f6ad))
+
 ## [0.2.0](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.1.24...granite-mem-v0.2.0) (2026-09-21)
 
 
