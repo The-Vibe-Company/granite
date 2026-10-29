@@ -23,3 +23,10 @@ jobs:
         run: npm run lint
       - name: Run tests with coverage
         run: npm run test:coverage
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Railway container
+        run: docker build --tag granite-ci .

@@ -1,5 +1,7 @@
 # Deploying Granite to the cloud
 
+For a private read/write MCP instance on **Railway**, see [the Railway guide](RAILWAY.md). It uses the included Dockerfile and a Railway template, with a persistent volume in your own account.
+
 `granite deploy` provisions a personal serverless Granite on [Fly.io Sprites](https://sprites.dev): a real persistent filesystem, an MCP endpoint that wakes on request (100–500 ms warm) and sleeps when idle. Idle cost ≈ storage only — a markdown vault is a few MB, so cents per month.
 
 There is no central admin, no Granite cloud account, no relay: the sprite is **yours**, on your Sprites account, paid by you directly.

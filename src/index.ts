@@ -297,7 +297,7 @@ const mcpCmd = program
   .option('--vault <path>', 'Vault root. Defaults to the current Granite vault or $GRANITE_VAULT')
   .option('--transport <transport>', 'Transport to use: stdio or http', parseTransportOption, 'stdio')
   .option('--host <host>', 'Host for HTTP transport', '127.0.0.1')
-  .option('--port <port>', 'Port for HTTP transport', '3321')
+  .option('--port <port>', 'HTTP port (default: MCP_PORT, PORT, or 3321)')
   .option('--allow-origin <origin>', 'Allow an HTTP Origin for browser-based HTTP clients', collectValues, [])
   .option('--auth-token <token>', 'Bearer token required for HTTP MCP requests. Defaults to $GRANITE_MCP_TOKEN')
   .option('--json-response', 'Prefer JSON HTTP responses instead of SSE streams')

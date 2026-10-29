@@ -189,13 +189,13 @@ export function parseTransport(value?: string): 'stdio' | 'http' {
 }
 
 export function parsePort(value?: string): number {
-  const raw = (value ?? process.env.MCP_PORT ?? '3321').trim();
+  const raw = (value ?? process.env.MCP_PORT ?? process.env.PORT ?? '3321').trim();
   if (!/^\d+$/.test(raw)) {
     throw new Error(`Invalid MCP port: ${raw}`);
   }
 
   const parsed = Number.parseInt(raw, 10);
-  if (parsed <= 0) {
+  if (parsed <= 0 || parsed > 65535) {
     throw new Error(`Invalid MCP port: ${raw}`);
   }
   return parsed;
