@@ -60,13 +60,15 @@ it.each(['GRANITE_MCP_TOKEN', 'TYPESAFE_API_KEY', 'RAILWAY_VOLUME_MOUNT_PATH'])(
 
 it('refuses to put the vault outside the Railway volume', () => {
   env.RAILWAY_VOLUME_MOUNT_PATH = path.join(tmp, 'other-volume');
+  fs.mkdirSync(env.RAILWAY_VOLUME_MOUNT_PATH);
   const result = spawnSync('sh', ['docker-entrypoint.sh'], { cwd: root, env, encoding: 'utf8', timeout: 3000 });
   expect(result.status).not.toBe(0);
-  expect(result.stderr).toContain('GRANITE_VAULT must equal');
+  expect(result.stderr).toContain('GRANITE_VAULT must be inside');
   expect(fs.existsSync(path.join(env.GRANITE_VAULT!, 'granite.yml'))).toBe(false);
 });
 
 it('serves authenticated read/write MCP on PORT and retains changes across restart', async () => {
+  env.GRANITE_VAULT = path.join(env.RAILWAY_VOLUME_MOUNT_PATH!, '.granite/migrations/active');
   const socket = net.createServer();
   socket.listen(0, '127.0.0.1');
   await once(socket, 'listening');
@@ -116,3 +118,17 @@ it('serves authenticated read/write MCP on PORT and retains changes across resta
   expect(text).toContain('Created over remote MCP.');
   expect(text).toContain('Updated over remote MCP.');
 }, 30000);
+
+it('accepts a descendant vault and rejects a symlink escape before initialization', () => {
+  env.GRANITE_VAULT = path.join(env.RAILWAY_VOLUME_MOUNT_PATH!, '.granite/migrations/new');
+  const accepted = spawnSync('sh', ['docker-entrypoint.sh', '--granite-migration-capability'], { cwd: root, env, encoding: 'utf8' });
+  expect(accepted.status).toBe(0);
+  expect(fs.existsSync(env.GRANITE_VAULT)).toBe(false);
+  fs.mkdirSync(path.join(tmp, 'outside'));
+  fs.symlinkSync(path.join(tmp, 'outside'), path.join(env.RAILWAY_VOLUME_MOUNT_PATH!, 'escape'));
+  env.GRANITE_VAULT = path.join(env.RAILWAY_VOLUME_MOUNT_PATH!, 'escape/new');
+  const rejected = spawnSync('sh', ['docker-entrypoint.sh'], { cwd: root, env, encoding: 'utf8' });
+  expect(rejected.status).not.toBe(0);
+  expect(rejected.stderr).toContain('GRANITE_VAULT must be inside');
+  expect(fs.existsSync(path.join(tmp, 'outside/new'))).toBe(false);
+});

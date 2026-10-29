@@ -52,6 +52,7 @@ import {
   syncStatusCommand,
   syncWatchCommand,
 } from './commands/sync.js';
+import { migrateRailwayCommand } from './commands/migrate.js';
 import { GRANITE_VERSION } from './version.js';
 
 const program = new Command();
@@ -401,6 +402,18 @@ deployCmd
   .action(async (name: string | undefined, options: { token?: string; force?: boolean }) => {
     await deployDestroyCommand(name, { ...deployCmd.opts(), ...options });
   });
+
+program.command('migrate').description('Move an existing vault to another host')
+  .command('railway')
+  .description('Verify and stage a vault on Railway; dry run unless --apply is supplied')
+  .requiredOption('--vault <path>', 'Local source vault')
+  .requiredOption('--project <id>', 'Railway project ID')
+  .requiredOption('--service <id>', 'Railway service ID')
+  .requiredOption('--environment <id>', 'Railway environment ID')
+  .option('--apply', 'Upload, verify and activate a new vault directory')
+  .option('--include <relative-directory>', 'Additional attachment directory inside the vault (repeatable)', collectValues, [])
+  .option('--writers-stopped', 'Acknowledge that all local and remote writers are stopped')
+  .action(migrateRailwayCommand);
 
 // ─── Daemon ────────────────────────────────────────────────────────────
 // One background service exposing both MCP (HTTP) and the web UI.

@@ -56,6 +56,7 @@ import type {
   WikiLink,
 } from '../core/types.js';
 import { parseWikilinks, resolveWikilinks } from '../core/wikilinks.js';
+import { getIndexDbPath } from '../core/vault.js';
 import { getBacklinks } from '../core/backlinks.js';
 import {
   validateDurability,
@@ -346,8 +347,15 @@ export class GraniteMcpRuntime {
   constructor(vaultRoot: string, options: GraniteMcpRuntimeOptions = {}) {
     this.vaultRoot = path.resolve(vaultRoot);
     this.config = loadConfig(this.vaultRoot);
+    const needsInitialIndex = !fs.existsSync(getIndexDbPath(this.vaultRoot));
     this.db = openDatabase(this.vaultRoot);
     this.indexCheckIntervalMs = options.indexCheckIntervalMs ?? 1500;
+    // Restores/migrations omit derived SQLite state. Manual indexing disables
+    // subsequent refreshes, not the initial population of a newly created index.
+    if (needsInitialIndex) {
+      try { this.refreshIndex(true); }
+      catch (error) { this.db.close(); throw error; }
+    }
   }
 
   getConfig(): GraniteConfig {

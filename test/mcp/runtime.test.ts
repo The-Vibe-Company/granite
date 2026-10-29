@@ -28,6 +28,26 @@ describe('GraniteMcpRuntime', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('bootstraps a missing index with auto_rebuild disabled, then respects manual indexing on restart', () => {
+    createNote(tmpDir, config, 'note', 'Migrated Knowledge', 'Portable knowledge.\n');
+    const configPath = path.join(tmpDir, 'granite.yml');
+    const manualConfig = fs.readFileSync(configPath, 'utf8').replace('auto_rebuild: true', 'auto_rebuild: false');
+    fs.writeFileSync(configPath, manualConfig);
+
+    let runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
+    try {
+      expect(runtime.search('portable')).toHaveLength(1);
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(manualConfig);
+    } finally { runtime.close(); }
+
+    createNote(tmpDir, config, 'note', 'Later External Note', 'Unindexed addition.\n');
+    runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
+    try {
+      expect(runtime.search('portable')).toHaveLength(1);
+      expect(runtime.search('unindexed')).toHaveLength(0);
+    } finally { runtime.close(); }
+  });
+
   it('rebuilds a stale index on first refresh after a note deletion', () => {
     createNote(tmpDir, config, 'note', 'Stable Note', 'Persistent note.\n');
     const deleted = createNote(tmpDir, config, 'note', 'Deleted Note', 'Unique deleted content.\n');
