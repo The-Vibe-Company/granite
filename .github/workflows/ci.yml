@@ -28,5 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check Railway Dockerfile compatibility
+        run: |
+          if grep -Ein '^[[:space:]]*VOLUME([[:space:]]|$)' Dockerfile; then
+            echo 'Railway rejects Dockerfile VOLUME instructions. Attach storage in Railway instead.' >&2
+            exit 1
+          fi
       - name: Build Railway container
         run: docker build --tag granite-ci .
