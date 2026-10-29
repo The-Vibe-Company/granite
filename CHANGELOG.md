@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.1...granite-mem-v0.2.2) (2026-10-29)
+
+
+### Features
+
+* **mcp:** expose resources and correct graph tool behavior ([#92](https://github.com/The-Vibe-Company/granite/issues/92)) ([2682631](https://github.com/The-Vibe-Company/granite/commit/26826311b39e864e396df186faa211fc85a02de9))
+
+
+### Bug Fixes
+
+* **deploy:** remove unsupported Railway VOLUME instruction ([#90](https://github.com/The-Vibe-Company/granite/issues/90)) ([5b07c01](https://github.com/The-Vibe-Company/granite/commit/5b07c013ca3d2df498995e595760dee6749414d0))
+
 ## [0.2.1](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.0...granite-mem-v0.2.1) (2026-10-29)
 
 
