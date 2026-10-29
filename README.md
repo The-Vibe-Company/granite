@@ -230,6 +230,9 @@ claude mcp add --transport http granite https://<your-sprite>.sprites.app/mcp \
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/uTwCwu)
 
+To move an existing vault, preview with `granite migrate railway --vault ~/.granite --project PROJECT_ID --service SERVICE_ID --environment ENVIRONMENT_ID`. After backups and stopping all writers, add `--apply --writers-stopped` to upload, verify and submit activation. The [migration guide](docs/RAILWAY.md#move-an-existing-vault) covers attachment folders, rollback and live verification.
+
+
 Multiple named instances, bulk upgrades, token rotation, and self-hosting the HTTP MCP server (a generic `Dockerfile` is included) are covered in [docs/DEPLOY.md](docs/DEPLOY.md).
 
 **Sync, without a relay.** Direct machine-to-machine over LAN, Tailscale, or a private DNS name — with per-device read/write tokens:

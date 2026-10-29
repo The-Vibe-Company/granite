@@ -15,10 +15,7 @@ and a fresh random MCP bearer token in your account. Retrieve
 `GRANITE_MCP_TOKEN` from your service variables and connect your agent to
 `https://<your-domain>/mcp` with `Authorization: Bearer <your-token>`.
 
-The template follows this repository's `main` branch. **Until PR #88 is merged,
-wait before deploying:** it contains the container fix and Railway startup
-support. The button opens a real template; no live vault has been deployed as
-part of this change.
+The template follows this repository's `main` branch.
 
 Service configuration lives in the Railway template. No `railway.json` or
 `railway.toml` is committed; each user can adjust their own Railway settings.
@@ -41,9 +38,10 @@ contents are included.
    | `GRANITE_INIT_TEMPLATE` | Optional, e.g. `founder-os`; used only for a new vault |
 
    `/vault` is the image's default `GRANITE_VAULT`. If using another mount path,
-   set `GRANITE_VAULT` to that exact path. Railway supplies
+   set `GRANITE_VAULT` to that path or a directory inside it. Railway supplies
    `RAILWAY_VOLUME_MOUNT_PATH`; do not set it manually to bypass the check.
-   Missing secrets or a missing/mismatched volume cause startup to fail.
+   Missing secrets or a vault outside the real volume path cause startup to fail,
+   including paths that escape through symlinks.
 4. Deploy, then generate a Railway HTTPS domain for the service. The server
    listens on Railway's `PORT`, on `0.0.0.0`. Leave `MCP_PORT` unset unless you
    deliberately configure the same target port in Railway networking.
@@ -90,16 +88,68 @@ Railway service or replace the live volume check above.
 
 ## Move an existing vault
 
-Treat this as a storage migration, not re-ingestion. Stop all local writers,
-back up the vault, and stop the destination service while restoring. Transfer
-`granite.yml`, the configured note folders, and referenced attachments to the
-Railway volume using Railway's volume tools. Preserve the paths and IDs. Do not
-copy local credentials, PID files, or logs; the SQLite search index can be
-rebuilt from Markdown. Never put the vault or credentials in the image or Git.
+Use `granite migrate railway` with an authenticated Railway CLI (the directory
+transfer contract was verified with CLI 5.62.1). Deploy the current Granite image
+first: the migration checks the **running entrypoint** for descendant-vault support,
+not just a version variable. The CLI also requires your local `TYPESAFE_API_KEY`,
+as other Granite commands do. No local Jev request is made by migration.
 
-Start the service, verify representative notes and attachments through MCP,
-then switch every agent to the remote URL. Keep the local copy as a read-only
-rollback backup until verification is complete. Avoid two writable copies.
+```sh
+# Read-only preflight is the default. Use explicit IDs from Railway.
+granite migrate railway --vault ~/.granite \
+  --project PROJECT_ID --service SERVICE_ID --environment ENVIRONMENT_ID
+
+# After backing up both vaults and stopping ALL local and remote writers:
+granite migrate railway --vault ~/.granite \
+  --project PROJECT_ID --service SERVICE_ID --environment ENVIRONMENT_ID \
+  --apply --writers-stopped
+```
+
+Stop clients, sync/watch processes, daemons and automation that write either vault.
+Keep the destination service running for the read-only SSH capability check; stop
+its **writers**, not its container. The acknowledgment is a maintenance-window
+promise, not a distributed lock. Do not resume writers during migration.
+
+The command resolves the attached volume by the running service/volume names and
+mount path, then passes its explicit volume ID to Railway's file commands. It
+requires a persistent volume, MCP token and TypeSafe key. Sealed Railway secrets
+are supported: their values remain private and runtime startup checks they exist.
+Provider output is never printed, including failures, because it may hold secrets.
+
+Migration copies `granite.yml`, configured note folders, `assets/` and
+`attachments/`, preserving bytes, relative paths and note IDs. For another
+attachment folder, repeat `--include documents` (paths must be inside the vault).
+A note's `document_path` must be in the snapshot. Arbitrary Markdown links are not
+crawled; include any custom attachment roots explicitly and verify representative
+links afterward. Hidden files, local sync/credential state, indexes, logs, PID
+files and known key/secret filenames are excluded. Symlinks, special files and
+unsafe paths in selected content are rejected. This is not a secret-content
+scanner: keep credentials out of notes and attachment content.
+
+On apply, the command:
+
+1. Creates a private local snapshot and hashes every selected file.
+2. Uploads to a unique `/.granite/migrations/<uuid>` directory on the volume,
+   without overwrite. This hidden directory is excluded from normal vault scans
+   even when the previous vault is the volume root.
+3. Downloads to a new temporary directory and compares every file and SHA-256 hash,
+   then confirms the local source and destination configuration have not changed.
+4. Sets `GRANITE_VAULT` to the verified directory, submitting a Railway redeploy.
+
+The previous remote vault and local source are preserved. A rollback command using
+the previous `GRANITE_VAULT` is printed **before any upload**. Save it: setting that
+variable back redeploys the preserved vault. Stop writers before rollback as well;
+changes made to the new vault after activation are not merged into the old copy.
+A failed transfer leaves an inactive staging directory for inspection; it never
+automatically deletes remote files. If activation reports an uncertain outcome,
+inspect Railway's current `GRANITE_VAULT` and deployment before retrying or rolling
+back. Local temporary copies are removed when the command exits normally.
+
+**Activation submitted does not mean live verification passed.** Verify `/health`,
+authenticated `granite_wakeup`, representative notes and attachments, a temporary
+capture/revision, and persistence after restart before switching clients. Keep the
+local copy read-only until verification is complete. Avoid two writable copies.
+The CLI does not provision services, change client configurations, or enable backups.
 
 ## Backups and operations
 
