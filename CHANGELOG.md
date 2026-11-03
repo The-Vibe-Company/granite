@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.2...granite-mem-v0.2.3) (2026-11-03)
+
+
+### Features
+
+* **web:** add secure read-only personal dashboard to HTTP MCP ([#93](https://github.com/The-Vibe-Company/granite/issues/93)) ([32edf4e](https://github.com/The-Vibe-Company/granite/commit/32edf4eeed25fd9e3ca9c3ba58474af0f33312c7))
+
 ## [0.2.2](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.1...granite-mem-v0.2.2) (2026-10-29)
 
 
