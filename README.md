@@ -232,6 +232,20 @@ claude mcp add --transport http granite https://<your-sprite>.sprites.app/mcp \
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/uTwCwu)
 
+For an optional personal read-only dashboard in the same HTTP MCP process, set
+`GRANITE_UI_PASSWORD` in your Railway service variables to a unique strong password
+of at least 16 non-padding characters, then open `https://<your-domain>/ui` after
+your normal deployment update. Keep `GRANITE_MCP_TOKEN` and `TYPESAFE_API_KEY` as
+configured; the UI password is separate and can be rotated without changing MCP
+clients. Without a UI password, all `/ui` routes return 404.
+
+The dashboard supports browsing, full-text search, type/tag filters, rendered
+notes and clickable links/backlinks. It is read-only, single-user and HTTPS-only.
+Sessions expire after 12 hours; sign out to revoke one immediately. Rotate the UI
+password and restart to invalidate all sessions. See the
+[dashboard security and setup notes](docs/RAILWAY.md#optional-personal-read-only-dashboard)
+and [environment placeholders](.env.example).
+
 To move an existing vault, preview with `granite migrate railway --vault ~/.granite --project PROJECT_ID --service SERVICE_ID --environment ENVIRONMENT_ID`. After backups and stopping all writers, add `--apply --writers-stopped` to upload, verify and submit activation. The [migration guide](docs/RAILWAY.md#move-an-existing-vault) covers attachment folders, rollback and live verification.
 
 

@@ -73,6 +73,57 @@ document parsing: agents extract documents themselves and submit structured
 knowledge through MCP. Jev requests still go to TypeSafe; private hosting does
 not mean all processing stays inside Railway.
 
+## Optional personal read-only dashboard
+
+The same `granite mcp --transport http` process can serve an authenticated
+dashboard at **`https://<your-domain>/ui`**. No second service, port, start command
+or `--web-api` flag is needed. When `GRANITE_UI_PASSWORD` is unset or empty,
+**every `/ui` route returns 404**, including login, assets and the read API.
+The unauthenticated `granite serve` command remains a local tool.
+
+To enable it on your own personal deployment, set these Railway service variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `GRANITE_UI_PASSWORD` | A unique, strong password from a password manager, at least 16 non-padding characters |
+| `GRANITE_MCP_TOKEN` | Keep your existing MCP client token; it does not grant dashboard access |
+| `TYPESAFE_API_KEY` | Keep the existing required Jev key |
+
+After applying the variables through your normal deployment process, visit
+`https://<your-domain>/ui` and sign in. Browse or search notes, combine type and tag
+filters, and follow outgoing links and backlinks in the reader. The dashboard
+mounts only read routes; it cannot create, edit or delete notes and has no cloud
+instance proxy. `/mcp` still uses its existing bearer authentication and `/health`
+remains public.
+
+This is **single-user, HTTPS-only** access. The UI password is deliberately
+separate from `GRANITE_MCP_TOKEN`, so rotating it does not break MCP clients.
+Rotate it in Railway and restart through your normal deployment process; all
+dashboard sessions are held in memory and are invalidated by a restart. Unset
+the variable to disable the dashboard. Never put either secret in a URL, browser
+storage, screenshots or source control. See [`.env.example`](../.env.example)
+for placeholder configuration; Granite reads process environment variables and
+does not load that file automatically.
+
+Sessions expire after 12 hours and use a host-only HttpOnly, Secure,
+SameSite=Strict cookie scoped to `/ui`. Use **Sign out**, then confirm, to revoke
+the session immediately on the server. Login forms expire after 10 minutes and
+can be submitted only once; reload sign-in after a failed attempt. Login and
+logout require CSRF tokens and a matching HTTPS Origin. No HTTP cookie fallback
+is provided. Keep the deployment at one replica because sessions and rate
+limits are process-local.
+
+Login throttling uses connection IP addresses (5 failed attempts), with a global
+backoff after 10 failures, increasing to 60 seconds. Failure counters expire
+after 15 minutes. Forwarded IP headers are deliberately ignored: clients behind
+Railway's proxy share its IP bucket, and the global limit also covers distributed
+attempts. Backoff can temporarily delay the owner as well as an attacker.
+
+Private pages and API responses use `no-store`, a restrictive CSP and framing
+protection. Hosted pages load no external fonts or images; local vault images
+are authenticated and other attachments download with a sandbox policy. Keep
+passwords out of vault notes too: read-only access still exposes private content.
+
 ## Verify before switching clients
 
 - `/health` returns HTTP 200 once the MCP runtime has initialized.

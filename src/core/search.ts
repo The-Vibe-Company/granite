@@ -27,6 +27,8 @@ function toOrQuery(query: string): string {
 }
 
 export interface SearchOptions {
+  type?: string;
+  tag?: string;
   /** Final number of results returned. */
   limit?: number;
   /**
@@ -52,6 +54,14 @@ export function searchNotes(
   // final result count.
   const poolSize = Math.max(limit, Math.min(options.candidateLimit ?? limit, MAX_LIMIT));
   const ftsQuery = toOrQuery(query);
+  const filters: string[] = [];
+  const params: string[] = [];
+  if (options.type) { filters.push('n.type = ?'); params.push(options.type); }
+  if (options.tag) {
+    filters.push('EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)');
+    params.push(options.tag);
+  }
+  const filterSql = filters.length ? ` AND ${filters.join(' AND ')}` : '';
 
   const stmt = db.prepare(`
     SELECT
@@ -62,13 +72,13 @@ export function searchNotes(
       rank
     FROM notes_fts
     JOIN notes n ON n.rowid = notes_fts.rowid
-    WHERE notes_fts MATCH ?
+    WHERE notes_fts MATCH ? ${filterSql}
     ORDER BY rank
     LIMIT ?
   `);
 
   try {
-    const rows = stmt.all(ftsQuery, poolSize) as Array<{
+    const rows = stmt.all(ftsQuery, ...params, poolSize) as Array<{
       slug: string;
       title: string;
       type: string;
@@ -93,11 +103,11 @@ export function searchNotes(
         substr(n.body, 1, 200) as snippet,
         0 as rank
       FROM notes n
-      WHERE n.title LIKE ? OR n.body LIKE ?
+      WHERE (n.title LIKE ? OR n.body LIKE ?) ${filterSql}
       LIMIT ?
     `);
     const pattern = `%${query}%`;
-    const rows = fallback.all(pattern, pattern, poolSize) as Array<{
+    const rows = fallback.all(pattern, pattern, ...params, poolSize) as Array<{
       slug: string;
       title: string;
       type: string;
