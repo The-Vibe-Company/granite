@@ -1,0 +1,41 @@
+{
+  "$schema": "https://skillpack.app/schemas/companion-manifest.v2.schema.json",
+  "name": "stageshow",
+  "version": "1.0.1",
+  "description": "Build faux product UI that looks like a real product, as a still illustration or an animated demo with a cursor. Browser and app windows, dashboards, phones, notifications, terminals, bento grids and cursor walkthroughs, framed, masked and cropped the way a marketing page, feature card or docs hero needs them. Use whenever someone wants a fake or mocked UI, a product demo or walkthrough animation, a hero or feature-card illustration of an app, a product shot in the style of a polished marketing site, or an animated cursor doing things in an interface, even if they never say \"faux UI\". React and plain CSS.",
+  "metadata": {
+    "companionSkillId": "ca7b9955-74f6-4777-b54b-f4f680a88255",
+    "usage": {
+      "schemaVersion": 1,
+      "skillId": "ca7b9955-74f6-4777-b54b-f4f680a88255",
+      "version": "1.0.1",
+      "origin": "https://thecompanion.sh",
+      "migration": {
+        "parentVersion": "1.0.0",
+        "parentChecksum": "sha256:10cf1c20779f3ed0e335a17de35ca5f6c677107dcfeeccf98f767bf5425caec6"
+      }
+    },
+    "changelog": [
+      {
+        "version": "1.0.1",
+        "date": "2026-11-02",
+        "changes": [
+          "Replace model activation reporting with automatic Skillpack runtime collection."
+        ]
+      },
+      {
+        "version": "1.0.0",
+        "date": "2026-11-01",
+        "changes": [
+          "Publish version 1.0.0."
+        ]
+      }
+    ]
+  },
+  "environment": {
+    "env": {},
+    "secrets": {}
+  },
+  "dependencies": {},
+  "commands": []
+}
