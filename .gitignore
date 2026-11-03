@@ -25,3 +25,9 @@ __pycache__/
 # Railway service settings live in the shared template, not the source repo
 /railway.json
 /railway.toml
+
+# All Eyes On Me (AEOM) local state: captures, judge votes and run folders
+.aeom/
+
+# Skillpack runtime lock (temporary coordination file, never committed)
+.companion/skills.lock.json.lock

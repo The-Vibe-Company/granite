@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contents · Granite</title>
+  <meta name="description" content="Your Granite vault, read only: browse, search and read your notes.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#e7e5df">
+  <meta name="granite-base" content="/ui">
+  <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/ui/fonts/literata-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/ui/fonts/atkinson-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/ui/style.css">
+</head>
+<body class="app">
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="bar">
+    <div class="bar-in">
+      <a class="brand" href="/ui" data-nav="contents">
+        <svg class="mark" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-width="2.5"/><g fill="currentColor"><circle cx="11" cy="10" r="1.9"/><circle cx="20" cy="8.5" r="1.3"/><circle cx="17" cy="16" r="2.1"/><circle cx="9" cy="20" r="1.4"/><circle cx="22" cy="21" r="1.7"/><circle cx="14" cy="23.5" r="1.1"/></g></svg>
+        <span>Granite</span>
+      </a>
+      <span class="ro" title="This dashboard cannot change your vault">Read only</span>
+      <nav class="nav" aria-label="Dashboard">
+        <ul>
+          <li><a href="/ui" id="nav-contents" data-nav="contents"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r=".6" fill="currentColor"/><circle cx="3.5" cy="10" r=".6" fill="currentColor"/><circle cx="3.5" cy="15" r=".6" fill="currentColor"/></svg><span>Contents</span></a></li>
+          <li><a href="/ui#q" id="nav-search" data-nav="search"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4.5 4.5"/></svg><span>Search</span></a></li>
+          <li><a href="/ui/logout" class="out"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.5H4.5v13H8"/><path d="M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/></svg><span>Sign out</span></a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="shell" tabindex="-1">
+    <section class="toc-pane" id="contents" aria-labelledby="toc-title">
+      <header class="toc-head">
+        <h1 id="toc-title">Contents</h1>
+        <p class="sub" id="toc-sub">Newest first, by last change</p>
+      </header>
+
+      <form class="search" role="search" id="search-form" action="/ui" method="get">
+        <label class="sr" for="q">Search notes</label>
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4.5 4.5"/></svg>
+        <input id="q" name="q" type="search" placeholder="Search notes" autocomplete="off" spellcheck="false" enterkeyhint="search">
+        <kbd class="key" aria-hidden="true">/</kbd>
+      </form>
+
+      <div class="filters">
+        <div class="frow">
+          <span class="flabel" id="type-label">Type</span>
+          <ul class="opts" id="type-filters" aria-labelledby="type-label"></ul>
+        </div>
+        <div class="frow">
+          <span class="flabel" id="tag-label">Tags</span>
+          <details class="tags" id="tag-details">
+            <summary id="tag-summary">Filter by tag <span class="on" id="tag-current">· any</span></summary>
+            <ul class="opts tag-list" id="tag-filters" aria-labelledby="tag-label"></ul>
+          </details>
+        </div>
+      </div>
+
+      <div class="count" id="count" aria-live="polite"></div>
+      <div id="results" class="results" aria-busy="true">
+        <ul class="toc skeleton" aria-hidden="true">
+          <li><span class="sk sk-t"></span><span class="sk sk-m"></span></li>
+          <li><span class="sk sk-t"></span><span class="sk sk-m"></span></li>
+          <li><span class="sk sk-t"></span><span class="sk sk-m"></span></li>
+          <li><span class="sk sk-t"></span><span class="sk sk-m"></span></li>
+        </ul>
+      </div>
+    </section>
+
+    <article class="reader" id="reader" aria-labelledby="note-title" hidden>
+      <a class="back" id="back" href="/ui"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4 6 9l5 5"/></svg>Contents <span class="kept" id="back-kept"></span></a>
+      <div class="note-skeleton" id="note-skeleton" aria-hidden="true">
+        <span class="sk sk-badge"></span><span class="sk sk-h"></span><span class="sk sk-h2"></span><span class="sk sk-m"></span>
+        <span class="sk-rule"></span><span class="sk sk-p"></span><span class="sk sk-p"></span><span class="sk sk-p short"></span>
+      </div>
+      <div id="note-content" hidden>
+      <header class="note-head">
+        <span class="type" id="note-type"></span>
+        <h1 id="note-title" tabindex="-1"></h1>
+        <ul class="dates" id="note-dates"></ul>
+        <ul class="note-tags" id="note-tags" aria-label="Tags"></ul>
+      </header>
+      <div class="prose" id="note-body"></div>
+      <section class="endnotes" id="endnotes" aria-labelledby="endnotes-title">
+        <h2 id="endnotes-title">Endnotes</h2>
+        <h3><span>Links from this note</span> <span class="n" id="out-count"></span></h3>
+        <ol class="notes-list" id="out-links"></ol>
+        <h3><span>Backlinks</span> <span class="n" id="back-count"></span></h3>
+        <ul class="notes-list back-list" id="back-links"></ul>
+      </section>
+      </div>
+    </article>
+  </main>
+
+  <noscript><p class="noscript">The dashboard needs JavaScript to load your notes.</p></noscript>
+  <script src="/ui/markdown-renderer.js"></script>
+  <script src="/ui/type-filters.js"></script>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

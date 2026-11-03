@@ -239,6 +239,64 @@ describe('personal hosted dashboard', () => {
     expect((await request(app, '/ui/assets/%2e%2e%2fgranite.yml', { headers: { Cookie: cookie } })).status).toBe(404);
     expect((await request(app, '/ui/assets/%FF', { headers: { Cookie: cookie } })).status).toBe(404);
   });
+  it('keeps the exact strict CSP and hardening headers on pages, assets and errors', async () => {
+    const app = makeApp();
+    const cookie = cookieFrom(await signIn(app));
+    // Pinned verbatim: a redesign must never loosen it (no 'unsafe-inline' scripts,
+    // no external origins). Change it only with a security review.
+    const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'";
+    const urls = ['/ui', '/ui/', '/ui/login', '/ui/logout', '/ui/style.css', '/ui/app.js', '/ui/favicon.svg', '/ui/api/notes', '/ui/missing'];
+    for (const url of urls) {
+      for (const headers of [{ Cookie: cookie }, {}] as Record<string, string>[]) {
+        const response = await request(app, url, { headers });
+        expect(response.headers.get('content-security-policy'), url).toBe(csp);
+        expect(response.headers.get('cache-control'), url).toBe('no-store');
+        expect(response.headers.get('x-frame-options'), url).toBe('DENY');
+        expect(response.headers.get('x-content-type-options'), url).toBe('nosniff');
+        expect(response.headers.get('referrer-policy'), url).toBe('same-origin');
+        expect(response.headers.get('permissions-policy'), url).toBe('camera=(), microphone=(), geolocation=()');
+      }
+    }
+  });
+  it('serves only presentation before sign-in: the stylesheet, its self-hosted fonts and the icon', async () => {
+    const app = makeApp();
+    const css = await (await request(app, '/ui/style.css')).text();
+    const fonts = [...css.matchAll(/url\(["']?([^"')]+)["']?\)/g)].map(m => m[1]);
+    expect(fonts.length).toBeGreaterThan(0);
+    for (const url of fonts) {
+      expect(url).toMatch(/^\/ui\/fonts\/[a-z0-9-]+\.woff2$/);
+      const response = await request(app, url);
+      expect(response.status, url).toBe(200);
+      expect(response.headers.get('content-type')).toBe('font/woff2');
+    }
+    const icon = await request(app, '/ui/favicon.svg');
+    expect(icon.status).toBe(200);
+    expect(icon.headers.get('content-type')).toBe('image/svg+xml');
+    expect(await icon.text()).not.toMatch(/<script|on[a-z]+=|href=/i);
+    // Anything outside the closed list still needs a session, including look-alikes.
+    for (const url of ['/ui/fonts/missing.woff2', '/ui/fonts/..%2fapp.js', '/ui/fonts/', '/ui/dashboard/app.js', '/ui/graph-engine.js']) {
+      expect((await request(app, url)).status, url).toBe(303);
+    }
+  });
+  it('renders self-contained pages: same-origin assets only, no inline script or handlers', async () => {
+    const app = makeApp();
+    const login = await request(app, '/ui/login');
+    const cookie = cookieFrom(await signIn(app));
+    const pages = [await login.text(), await (await request(app, '/ui', { headers: { Cookie: cookie } })).text(),
+      await (await request(app, '/ui/logout', { headers: { Cookie: cookie } })).text()];
+    for (const html of pages) {
+      expect(html).not.toMatch(/https?:\/\//);
+      expect(html).not.toMatch(/\son[a-z]+\s*=/i);
+      expect(html).not.toMatch(/\sstyle\s*=/i);
+      for (const tag of html.match(/<script\b[^>]*>/g) ?? []) expect(tag).toMatch(/\ssrc="\/ui\/[a-z-]+\.js"/);
+      for (const tag of html.match(/<link\b[^>]*>/g) ?? []) expect(tag).toMatch(/\shref="\/ui\/[a-z0-9./-]+"/);
+    }
+    for (const asset of ['/ui/style.css', '/ui/app.js', '/ui/markdown-renderer.js', '/ui/type-filters.js']) {
+      const response = await request(app, asset, { headers: { Cookie: cookie } });
+      expect(response.status, asset).toBe(200);
+      expect(await response.text(), asset).not.toMatch(/https?:\/\/(?!www\.w3\.org\/2000\/svg)/);
+    }
+  });
   it('limits form size', async () => {
     const app = makeApp();
     const result = await request(app, '/ui/login', {
