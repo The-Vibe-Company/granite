@@ -43,13 +43,20 @@ window.GraniteDashboardText = (() => {
     return String(context || '').trim().replace(/^(?:[-*+]|\d+\.|#{1,6}|>)\s+/, '').replace(/\*\*|__|`/g, '').replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_, t, d) => `\u0000${d || t}\u0001`);
   }
 
-  return { escapeHtml, plural, snippetHtml, cleanContext };
+  // Backlink context as HTML: escaped text, the linking wikilink in bold.
+  function contextHtml(context) {
+    return escapeHtml(cleanContext(context))
+      .replace(/\u0000([^\u0000\u0001]*)\u0001/g, '<b>$1</b>')
+      .replace(/[\u0000\u0001]/g, '');
+  }
+
+  return { escapeHtml, plural, snippetHtml, cleanContext, contextHtml };
 })();
 
 (function () {
   'use strict';
   if (typeof document === 'undefined' || !document.getElementById('results')) return;
-  const { escapeHtml, plural, snippetHtml, cleanContext } = window.GraniteDashboardText;
+  const { escapeHtml, plural, snippetHtml, contextHtml } = window.GraniteDashboardText;
 
   const baseMeta = document.querySelector('meta[name="granite-base"]');
   const base = '/' + String(baseMeta?.content || '/ui').split('/').filter(Boolean).join('/');
@@ -352,7 +359,7 @@ window.GraniteDashboardText = (() => {
     const backlinks = note.backlinks || [];
     el.backCount.textContent = String(backlinks.length);
     el.backLinks.innerHTML = backlinks.length ? backlinks.map((b) => {
-      const context = escapeHtml(cleanContext(b.context)).replace(/\u0000/g, '<b>').replace(/\u0001/g, '</b>');
+      const context = contextHtml(b.context);
       return `<li><a href="${escapeHtml(urlFor({ ...state, note: b.source_slug }))}" data-note="${escapeHtml(b.source_slug)}"><span class="t">${escapeHtml(b.source_title || b.source_slug)}</span>${context ? `<q>${context}</q>` : ''}</a></li>`;
     }).join('') : '<li class="none">No note links here yet.</li>';
     el.endnotes.hidden = false;
@@ -374,6 +381,7 @@ window.GraniteDashboardText = (() => {
     const slug = state.note;
     el.body.classList.toggle('reading', Boolean(slug));
     if (!slug) {
+      noteToken++; // a note still loading must not repaint the closed reader
       el.reader.hidden = true;
       document.title = 'Contents · Granite';
       if (focus === 'list' && previousNote) {
@@ -393,6 +401,8 @@ window.GraniteDashboardText = (() => {
       if (note) { noteCache.set(slug, note); renderNote(note); } else renderMissing(slug);
     } catch (err) {
       if (token !== noteToken || expired) return;
+      document.title = 'Note not loaded · Granite';
+      el.noteType.hidden = true;
       el.noteTitle.textContent = 'The note did not load';
       el.noteBody.innerHTML = '<p>Check the connection, then open it again from the contents.</p>';
       el.noteDates.innerHTML = ''; el.noteTags.innerHTML = ''; el.endnotes.hidden = true;
@@ -453,10 +463,21 @@ window.GraniteDashboardText = (() => {
       el.q.select();
       return;
     }
+    // Filters are re-rendered on change: put focus back on the same control.
     const typeBtn = target.closest('button[data-type]');
-    if (typeBtn) { go({ type: typeBtn.dataset.type }); return; }
+    if (typeBtn) {
+      const type = typeBtn.dataset.type;
+      go({ type });
+      el.types.querySelector(`button[data-type="${CSS.escape(type)}"]`)?.focus();
+      return;
+    }
     const tagBtn = target.closest('button[data-tag]');
-    if (tagBtn) { go({ tag: state.tag === tagBtn.dataset.tag ? '' : tagBtn.dataset.tag }); return; }
+    if (tagBtn) {
+      const tag = tagBtn.dataset.tag;
+      go({ tag: state.tag === tag ? '' : tag });
+      el.tags.querySelector(`button[data-tag="${CSS.escape(tag)}"]`)?.focus();
+      return;
+    }
     const clear = target.closest('[data-clear]');
     if (clear) {
       const key = clear.dataset.clear;
@@ -517,9 +538,13 @@ window.GraniteDashboardText = (() => {
       renderChrome();
     } catch (err) {
       if (expired) return;
+      // Show the error where it can be seen at every width, even on a ?note= link.
+      el.body.classList.remove('reading');
+      el.reader.hidden = true;
       el.results.setAttribute('aria-busy', 'false');
       el.count.textContent = '';
       el.results.innerHTML = errorHtml();
+      el.results.querySelector('[data-retry]')?.focus();
     }
   }
 

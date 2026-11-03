@@ -8,6 +8,7 @@ interface DashboardText {
   plural: (n: number, word: string) => string;
   snippetHtml: (snippet: string) => string;
   cleanContext: (context: string) => string;
+  contextHtml: (context: string) => string;
 }
 
 // The hosted dashboard injects search snippets and backlink context as HTML.
@@ -42,6 +43,13 @@ describe('hosted dashboard text helpers', () => {
     expect(context.startsWith('see ')).toBe(true);
     expect(text.escapeHtml(context)).toContain('&lt;b onclick=x&gt;');
     expect(context).toContain('\u0000the crawl note\u0001');
+  });
+
+  it('renders backlink context escaped, with only balanced emphasis', () => {
+    expect(text.contextHtml('- see [[Kiln loading map]] <img src=x onerror=alert(1)>'))
+      .toBe('see <b>Kiln loading map</b> &lt;img src=x onerror=alert(1)&gt;');
+    // Stray control characters in a note can never open an unclosed tag.
+    expect(text.contextHtml('a \u0000 b [[Note]] c \u0001')).toBe('a  b <b>Note</b> c ');
   });
 
   it('counts in plain English', () => {

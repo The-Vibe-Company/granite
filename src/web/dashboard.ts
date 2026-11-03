@@ -100,8 +100,8 @@ export function createDashboard(source: ReadOnlyApiSource, options: DashboardOpt
     'favicon.svg': ['dashboard/favicon.svg', 'image/svg+xml'],
     ...Object.fromEntries(DASHBOARD_FONTS.map(font => [`fonts/${font}.woff2`, [`dashboard/fonts/${font}.woff2`, 'font/woff2']])),
   };
-  for (const [file, [source, mime]] of Object.entries(publicFiles)) {
-    app.get(`/ui/${file}`, c => c.body(fs.readFileSync(path.join(publicDir, source)), 200, { 'Content-Type': mime }));
+  for (const [route, [file, mime]] of Object.entries(publicFiles)) {
+    app.get(`/ui/${route}`, c => c.body(fs.readFileSync(path.join(publicDir, file)), 200, { 'Content-Type': mime }));
   }
 
   app.get('/ui/login', c => {
@@ -186,8 +186,8 @@ export function createDashboard(source: ReadOnlyApiSource, options: DashboardOpt
     'markdown-renderer.js': 'markdown-renderer.js',
     'type-filters.js': 'type-filters.js',
   };
-  for (const [file, source] of Object.entries(staticFiles)) {
-    app.get(`/ui/${file}`, c => c.body(fs.readFileSync(path.join(publicDir, source)), 200, { 'Content-Type': 'application/javascript' }));
+  for (const [route, file] of Object.entries(staticFiles)) {
+    app.get(`/ui/${route}`, c => c.body(fs.readFileSync(path.join(publicDir, file)), 200, { 'Content-Type': 'application/javascript' }));
   }
   const index = (c: Context) => c.html(fs.readFileSync(path.join(publicDir, 'dashboard', 'index.html'), 'utf8'));
   app.get('/ui', index);
