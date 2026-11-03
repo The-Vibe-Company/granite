@@ -16,26 +16,38 @@ export interface ReadOnlyApiSource {
 // The read-only vault API shared by the local web UI (`granite serve`) and the
 // remote web surface (`granite mcp --transport http --web-api`). Writes are
 // deliberately excluded — they only exist on the local server.
-export function registerReadOnlyApiRoutes(app: Hono, source: ReadOnlyApiSource): void {
+export function registerReadOnlyApiRoutes(
+  app: Hono,
+  source: ReadOnlyApiSource,
+  options: { prefix?: string; secureAssets?: boolean } = {},
+): void {
   const { vaultRoot } = source;
+  const prefix = options.prefix ?? '';
 
-  app.get('/api/notes', (c) => {
+  app.get(`${prefix}/api/notes`, (c) => {
     const config = source.getConfig();
     const db = ensureIndex(vaultRoot, config);
     const typeFilter = c.req.query('type');
     let query = 'SELECT slug, title, type, created, modified, tags FROM notes';
     const params: string[] = [];
+    const conditions: string[] = [];
     if (typeFilter) {
-      query += ' WHERE type = ?';
+      conditions.push('type = ?');
       params.push(typeFilter);
     }
+    const tagFilter = c.req.query('tag');
+    if (tagFilter) {
+      conditions.push('EXISTS (SELECT 1 FROM json_each(notes.tags) WHERE value = ?)');
+      params.push(tagFilter);
+    }
+    if (conditions.length) query += ` WHERE ${conditions.join(' AND ')}`;
     query += ' ORDER BY modified DESC';
     const notes = db.prepare(query).all(...params);
     db.close();
     return c.json({ notes });
   });
 
-  app.get('/api/notes/:slug', (c) => {
+  app.get(`${prefix}/api/notes/:slug`, (c) => {
     const config = source.getConfig();
     const slug = c.req.param('slug');
     const db = ensureIndex(vaultRoot, config);
@@ -71,18 +83,18 @@ export function registerReadOnlyApiRoutes(app: Hono, source: ReadOnlyApiSource):
     });
   });
 
-  app.get('/api/search', (c) => {
+  app.get(`${prefix}/api/search`, (c) => {
     const q = c.req.query('q');
     if (!q) return c.json({ query: '', results: [] });
 
     const db = ensureIndex(vaultRoot, source.getConfig());
-    const results = searchNotes(db, q);
+    const results = searchNotes(db, q, { type: c.req.query('type'), tag: c.req.query('tag') });
     db.close();
 
     return c.json({ query: q, results });
   });
 
-  app.get('/api/backlinks/:slug', (c) => {
+  app.get(`${prefix}/api/backlinks/:slug`, (c) => {
     const slug = c.req.param('slug');
     const db = ensureIndex(vaultRoot, source.getConfig());
     const backlinks = getBacklinks(db, slug);
@@ -90,12 +102,12 @@ export function registerReadOnlyApiRoutes(app: Hono, source: ReadOnlyApiSource):
     return c.json({ slug, backlinks });
   });
 
-  app.get('/api/types', (c) => {
+  app.get(`${prefix}/api/types`, (c) => {
     return c.json({ types: source.getConfig().note_types });
   });
 
   // Graph data — all nodes and edges
-  app.get('/api/graph', (c) => {
+  app.get(`${prefix}/api/graph`, (c) => {
     const db = ensureIndex(vaultRoot, source.getConfig());
     const nodes = db.prepare('SELECT slug, title, type FROM notes').all();
     const edges = db.prepare('SELECT source_slug AS source, target_slug AS target FROM links WHERE target_slug IS NOT NULL').all();
@@ -104,8 +116,10 @@ export function registerReadOnlyApiRoutes(app: Hono, source: ReadOnlyApiSource):
   });
 
   // Serve vault assets (images, files) from {vault}/assets/
-  app.get('/assets/*', (c) => {
-    const assetPath = decodeURIComponent(c.req.path.replace(/^\/assets\//, ''));
+  app.get(`${prefix}/assets/*`, (c) => {
+    let assetPath: string;
+    try { assetPath = decodeURIComponent(c.req.path.slice(`${prefix}/assets/`.length)); }
+    catch { return c.notFound(); }
     const assetsRoot = path.resolve(vaultRoot, 'assets');
     const fullPath = path.resolve(assetsRoot, assetPath);
 
@@ -114,8 +128,14 @@ export function registerReadOnlyApiRoutes(app: Hono, source: ReadOnlyApiSource):
       return c.notFound();
     }
 
-    if (!fs.existsSync(fullPath)) {
+    if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
       return c.notFound();
+    }
+
+    if (options.secureAssets) {
+      const canonicalRoot = path.join(fs.realpathSync(vaultRoot), 'assets');
+      // Reject symlinked roots and files resolving outside assets/.
+      if (fs.realpathSync(assetsRoot) !== canonicalRoot || !fs.realpathSync(fullPath).startsWith(canonicalRoot + path.sep)) return c.notFound();
     }
 
     const content = fs.readFileSync(fullPath);
@@ -135,7 +155,10 @@ export function registerReadOnlyApiRoutes(app: Hono, source: ReadOnlyApiSource):
     return new Response(content, {
       headers: {
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': options.secureAssets ? 'no-store' : 'public, max-age=3600',
+        ...(options.secureAssets && !['.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.webm'].includes(ext)
+          ? { 'Content-Disposition': 'attachment', 'Content-Security-Policy': "sandbox; default-src 'none'; frame-ancestors 'none'" }
+          : {}),
       },
     });
   });

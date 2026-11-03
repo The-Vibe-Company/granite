@@ -43,6 +43,7 @@
         <span class="kbd">⌘K</span>
       </button>
       <div class="dirA-filters" id="type-filters" role="tablist" aria-label="Filter by note type"></div>
+      <a class="dirA-logout" id="logout-link" href="/logout" hidden>Sign out</a>
     </header>
 
     <!-- Title + subtitle -->
@@ -134,8 +135,20 @@
           <svg class="command-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>
           </svg>
-          <input type="text" id="command-input" placeholder="Search notes…" autocomplete="off" spellcheck="false" aria-label="Search notes" role="combobox" aria-expanded="false" aria-controls="command-results" aria-autocomplete="list">
+          <input type="text" id="command-input" placeholder="Search or browse notes…" autocomplete="off" spellcheck="false" aria-label="Search or browse notes" role="combobox" aria-expanded="false" aria-controls="command-results" aria-autocomplete="list">
           <kbd class="command-kbd">esc</kbd>
+        </div>
+        <div class="command-controls" aria-label="Browse filters">
+          <label class="command-select-label" for="command-type-filter">Type
+            <select id="command-type-filter" aria-label="Filter notes by type">
+              <option value="">All types</option>
+            </select>
+          </label>
+          <label class="command-select-label" for="command-tag-filter">Tag
+            <select id="command-tag-filter" aria-label="Filter notes by tag">
+              <option value="">All tags</option>
+            </select>
+          </label>
         </div>
         <div id="command-results" role="listbox" aria-label="Search results" aria-live="polite"></div>
       </div>

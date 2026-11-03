@@ -8,6 +8,11 @@
 (function () {
   'use strict';
 
+  const baseMeta = document.querySelector('meta[name="granite-base"]');
+  const baseSegments = String(baseMeta?.content || '').split('/').filter(Boolean);
+  const graniteBase = baseSegments.length ? '/' + baseSegments.join('/') : '';
+  const hostedMode = graniteBase !== '';
+
   // ======================================================================
   //  Constants
   // ======================================================================
@@ -41,6 +46,7 @@
   let activeNote = null;    // full /api/notes/:slug payload
   let history = [];         // slug[]
   const noteCache = new Map(); // slug -> full note payload
+  let sessionExpired = false;
   let readerWidth = null;
   let readerProgress = 0;
   let hoveredIdx = -1;
@@ -78,6 +84,9 @@
   const cmdOverlay   = $('command-bar-overlay');
   const cmdInput     = $('command-input');
   const cmdResults   = $('command-results');
+  const cmdType      = $('command-type-filter');
+  const cmdTag       = $('command-tag-filter');
+  const logoutLink   = $('logout-link');
 
   // ======================================================================
   //  Utilities
@@ -103,6 +112,44 @@
 
   function readingTime(body) {
     return Math.max(1, Math.ceil(wordCount(body) / 220));
+  }
+
+  function normalizeList(value) {
+    if (Array.isArray(value)) return value.filter(item => item != null).map(item => String(item));
+    if (typeof value !== 'string' || value.trim() === '') return [];
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.filter(item => item != null).map(item => String(item));
+    } catch {}
+    return value.split(',').map(item => item.trim()).filter(Boolean);
+  }
+
+  function apiPath(path) {
+    return graniteBase + (path.startsWith('/') ? path : '/' + path);
+  }
+
+  function expireHostedSession() {
+    if (!hostedMode || sessionExpired) return;
+    sessionExpired = true;
+    noteCache.clear();
+    nodes = []; links = []; byslug = {}; adj = {}; types = [];
+    activeSlug = null; activeNote = null; history = [];
+    sim = null; renderer = null;
+    cmdItems = [];
+    browseAllNotes = null;
+    tagOptionsReady = false;
+    cmdToken++;
+    clearTimeout(cmdTimer);
+    delete window.__granite;
+    window.GRANITE_INSTANCE = null;
+    // Replace the app synchronously so no private note or graph remains
+    // visible while the browser navigates to the sign-in page.
+    document.body.replaceChildren();
+    const message = document.createElement('p');
+    message.setAttribute('role', 'status');
+    message.textContent = 'Your session expired. Redirecting to sign in…';
+    document.body.appendChild(message);
+    window.location.assign(apiPath('/login'));
   }
 
   // First paragraph-ish chunk, stripped of markdown noise, clipped to 160 chars.
@@ -137,16 +184,28 @@
 
   // ---- Instance selection (local vault vs deployed cloud instances) ------
   const INSTANCE_KEY = 'granite.instance';
-  let currentInstance = localStorage.getItem(INSTANCE_KEY);
+  let currentInstance = hostedMode ? null : localStorage.getItem(INSTANCE_KEY);
 
   // All API calls go through this wrapper so the gateway knows which instance
   // to serve. <img> assets can't carry headers — see markdown-renderer.js.
   function apiFetch(url) {
-    const headers = currentInstance ? { 'X-Granite-Instance': currentInstance } : {};
-    return fetch(url, { headers });
+    const headers = !hostedMode && currentInstance ? { 'X-Granite-Instance': currentInstance } : {};
+    return fetch(apiPath(url), { headers }).then(res => {
+      if (res.status === 401) expireHostedSession();
+      return res;
+    });
   }
 
   async function loadInstances() {
+    if (hostedMode) {
+      currentInstance = null;
+      window.GRANITE_INSTANCE = null;
+      if (logoutLink) {
+        logoutLink.href = apiPath('/logout');
+        logoutLink.hidden = false;
+      }
+      return;
+    }
     const res = await fetch('/api/instances');
     const data = await res.json();
     const instances = data.instances || [];
@@ -190,11 +249,13 @@
         apiFetch('/api/graph').then(r => readApiResponse(r)),
         apiFetch('/api/types').then(r => readApiResponse(r)),
       ]);
+      if (sessionExpired) return;
 
       nodes = graphRes.nodes || [];
       const rawEdges = graphRes.edges || [];
       const typesRaw = typesRes.types || [];
       types = window.GraniteTypeFilters.visibleTypeNames(typesRaw, nodes);
+      populateTypeFilterOptions();
 
       // Map types → palette colors
       typeColor = {};
@@ -226,6 +287,7 @@
         subEl.textContent = 'Your vault is empty. Create a note with `granite new` to light up the sky.';
       }
     } catch (err) {
+      if (sessionExpired) return;
       console.error('[granite] boot failed', err);
       subEl.textContent = err && err.graniteMessage
         ? err.graniteMessage
@@ -236,6 +298,7 @@
   // Parse an API response; surface gateway errors (502/504 with a code) with
   // their human message so instance problems are actionable from the UI.
   async function readApiResponse(res) {
+    if (sessionExpired) throw new Error('Hosted session expired');
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const err = new Error(data.error || ('API error ' + res.status));
@@ -263,6 +326,14 @@
       btn.addEventListener('click', () => setTypeFilter(f.k));
       typeFilters.appendChild(btn);
     }
+  }
+
+  function populateTypeFilterOptions() {
+    if (!cmdType) return;
+    const selected = cmdType.value;
+    cmdType.replaceChildren(new Option('All types', ''));
+    for (const type of types) cmdType.add(new Option(type, type));
+    if (types.includes(selected)) cmdType.value = selected;
   }
 
   function setTypeFilter(k) {
@@ -327,6 +398,7 @@
     // Wait until the stage has real dimensions, then fit + launch the
     // arrival animation. First paint can report a 0×0 rect.
     function bootArrival(attempt = 0) {
+      if (sessionExpired) return;
       const rect = stage.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) {
         if (attempt > 30) return;
@@ -364,6 +436,7 @@
       return false;
     }
     function loop() {
+      if (sessionExpired) return;
       if (shouldWork()) {
         // Only run the simulation when positions can actually change —
         // pan/zoom triggers redraws but not a physics step.
@@ -436,6 +509,7 @@
     const easeInOut = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
     function step() {
+      if (sessionExpired) return;
       const elapsed = performance.now() - start;
 
       // Node per-node fade-in
@@ -768,7 +842,7 @@
   // ======================================================================
 
   async function navigateTo(slug) {
-    if (!slug || !byslug[slug]) return;
+    if (sessionExpired || !slug || !byslug[slug]) return;
     activeSlug = slug;
     activeHops = computeHops(slug);
     pushHops();
@@ -781,7 +855,7 @@
     try {
       const note = noteCache.get(slug) || await fetchNote(slug);
       // Ignore stale responses
-      if (activeSlug !== slug) return;
+      if (sessionExpired || activeSlug !== slug) return;
       activeNote = note;
       renderReader(note);
     } catch (err) {
@@ -791,8 +865,8 @@
 
   async function fetchNote(slug) {
     const res = await apiFetch('/api/notes/' + encodeURIComponent(slug));
-    if (!res.ok) throw new Error('fetch ' + slug + ': ' + res.status);
-    const note = await res.json();
+    const note = await readApiResponse(res);
+    if (sessionExpired) throw new Error('Hosted session expired');
     noteCache.set(slug, note);
     return note;
   }
@@ -849,6 +923,7 @@
   }
 
   function closeReader() {
+    if (sessionExpired) return;
     activeSlug = null;
     activeNote = null;
     activeHops = { hop1: new Set(), hop2: new Set() };
@@ -859,6 +934,7 @@
   }
 
   function renderReader(note) {
+    if (sessionExpired) return;
     reader.hidden = false;
     const tc = colorForType(note.type);
     const words = wordCount(note.body);
@@ -900,9 +976,27 @@
     readerTitle.textContent = note.title || note.slug;
     readerDeck.textContent = deck;
 
-    // Metaline: slug + tags
-    const metaParts = [`<span class="slug">${escapeHtml(note.slug)}</span>`];
-    for (const t of (note.tags || [])) metaParts.push(`<span class="tag">#${escapeHtml(t)}</span>`);
+    // Keep protocol metadata visible beside the note body. Some vaults still
+    // store array fields as JSON strings, so normalize those at the edge.
+    const tags = normalizeList(note.tags);
+    const aliases = normalizeList(note.aliases);
+    const derivedFrom = normalizeList(note.derived_from);
+    const metadata = [
+      ['Slug', note.slug],
+      ['Created', formatDate(note.created) || note.created],
+      ['Modified', formatDate(note.modified) || note.modified],
+      ['Type', note.type],
+      ['Tags', tags.length ? tags.map(tag => '#' + tag).join(', ') : '—'],
+      ['Aliases', aliases.length ? aliases.join(', ') : '—'],
+      ['Status', note.status],
+      ['Source', note.source],
+      ['Review state', note.review_state],
+      ['Durability', note.durability],
+      ['Derived from', derivedFrom.length ? derivedFrom.join(', ') : '—'],
+    ];
+    const metaParts = metadata.map(([label, value]) => (
+      `<span class="meta-field"><span class="meta-label">${escapeHtml(label)}</span><span>${escapeHtml(value || '—')}</span></span>`
+    ));
     readerMeta.innerHTML = metaParts.join('');
 
     // Article body
@@ -1083,14 +1177,23 @@
   $('search-trigger').addEventListener('click', openCommandBar);
 
   function openCommandBar() {
+    if (sessionExpired) return;
     cmdOverlay.classList.remove('hidden');
     cmdInput.value = '';
-    cmdResults.innerHTML = '<div class="command-empty">Type to search…</div>';
+    cmdType.value = '';
+    cmdTag.value = '';
+    cmdResults.innerHTML = '<div class="command-empty">Loading notes…</div>';
+    cmdInput.setAttribute('aria-expanded', 'true');
     cmdInput.focus();
+    executeCommandQuery();
   }
   function closeCommandBar() {
+    cmdToken++;
+    clearTimeout(cmdTimer);
     cmdOverlay.classList.add('hidden');
     cmdInput.blur();
+    cmdInput.setAttribute('aria-expanded', 'false');
+    cmdInput.removeAttribute('aria-activedescendant');
   }
   cmdOverlay.addEventListener('click', (e) => {
     if (e.target === cmdOverlay) closeCommandBar();
@@ -1100,46 +1203,107 @@
   let cmdTimer = null;
   let cmdIndex = 0;
   let cmdItems = [];
-  cmdInput.addEventListener('input', () => {
+  let browseAllNotes = null;
+  let tagOptionsReady = false;
+
+  function populateTagFilterOptions(notes) {
+    if (tagOptionsReady) return;
+    const tags = new Set();
+    for (const note of notes) for (const tag of normalizeList(note.tags)) tags.add(tag);
+    const selected = cmdTag.value;
+    cmdTag.replaceChildren(new Option('All tags', ''));
+    for (const tag of [...tags].sort((a, b) => a.localeCompare(b))) cmdTag.add(new Option(tag, tag));
+    if (tags.has(selected)) cmdTag.value = selected;
+    tagOptionsReady = true;
+  }
+
+  async function executeCommandQuery() {
+    if (sessionExpired) return;
+    const token = ++cmdToken;
     const q = cmdInput.value.trim();
-    clearTimeout(cmdTimer);
-    if (!q) {
-      cmdResults.innerHTML = '<div class="command-empty">Type to search…</div>';
-      cmdItems = []; cmdIndex = 0;
+    const type = cmdType.value;
+    const tag = cmdTag.value;
+    if (!q && !type && !tag && browseAllNotes) {
+      renderCommandResults(browseAllNotes);
       return;
     }
-    const token = ++cmdToken;
-    cmdTimer = setTimeout(async () => {
-      try {
-        const res = await apiFetch('/api/search?q=' + encodeURIComponent(q));
-        const data = await readApiResponse(res);
-        if (token !== cmdToken) return;
-        renderCommandResults(data.results || []);
-      } catch (err) {
-        console.error('[granite] search failed', err);
+
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (type) params.set('type', type);
+    if (tag) params.set('tag', tag);
+    const route = q ? '/api/search' : '/api/notes';
+    cmdInput.removeAttribute('aria-activedescendant');
+    cmdResults.innerHTML = `<div class="command-empty">${q ? 'Searching…' : 'Loading notes…'}</div>`;
+
+    try {
+      const query = params.toString();
+      const res = await apiFetch(route + (query ? '?' + query : ''));
+      const data = await readApiResponse(res);
+      if (sessionExpired || token !== cmdToken) return;
+      if (!q && !type && !tag) {
+        browseAllNotes = data.notes || [];
+        populateTagFilterOptions(browseAllNotes);
       }
-    }, 120);
+      const rows = q ? (data.results || []) : (data.notes || []);
+      renderCommandResults(filterCommandResults(rows, type, tag));
+    } catch (err) {
+      if (sessionExpired || token !== cmdToken) return;
+      console.error('[granite] browse/search failed', err);
+      cmdItems = [];
+      cmdIndex = -1;
+      cmdResults.innerHTML = '<div class="command-empty command-error">Could not load notes. Try again.</div>';
+    }
+  }
+
+  cmdInput.addEventListener('input', () => {
+    cmdToken++;
+    clearTimeout(cmdTimer);
+    cmdTimer = setTimeout(executeCommandQuery, cmdInput.value.trim() ? 120 : 0);
   });
+  cmdType.addEventListener('change', executeCommandQuery);
+  cmdTag.addEventListener('change', executeCommandQuery);
+
+  function filterCommandResults(results, type, tag) {
+    if (!type && !tag) return results;
+    const tagsBySlug = new Map((browseAllNotes || []).map(note => [note.slug, normalizeList(note.tags)]));
+    return results.filter(note => {
+      if (type && window.GraniteTypeFilters.noteType(note, byslug) !== type) return false;
+      if (tag) {
+        const tags = note.tags == null ? (tagsBySlug.get(note.slug) || []) : normalizeList(note.tags);
+        if (!tags.includes(tag)) return false;
+      }
+      return true;
+    });
+  }
 
   function renderCommandResults(results) {
     cmdItems = results;
     cmdIndex = 0;
     if (!results.length) {
-      cmdResults.innerHTML = '<div class="command-empty">No matches.</div>';
+      cmdIndex = -1;
+      cmdInput.removeAttribute('aria-activedescendant');
+      const emptyMessage = !nodes.length
+        ? 'No notes in this vault yet.'
+        : cmdInput.value.trim() ? 'No matches.' : 'No notes match these filters.';
+      cmdResults.innerHTML = `<div class="command-empty">${emptyMessage}</div>`;
       return;
     }
     cmdResults.innerHTML = results.map((r, i) => {
       const type = window.GraniteTypeFilters.noteType(r, byslug);
       const tc = colorForType(type);
-      return `<div class="command-result${i === 0 ? ' active' : ''}" data-idx="${i}" data-slug="${escapeHtml(r.slug)}">
+      const tags = normalizeList(r.tags);
+      const secondary = tags.length ? tags.map(tag => '#' + tag).join(' · ') : r.slug;
+      return `<button class="command-result${i === 0 ? ' active' : ''}" id="command-result-${i}" type="button" role="option" aria-selected="${i === 0}" tabindex="-1" data-idx="${i}" data-slug="${escapeHtml(r.slug)}">
         <span class="command-result-dot" style="background:${tc.hex}"></span>
         <div class="command-result-body">
           <div class="command-result-title">${escapeHtml(r.title || r.slug)}</div>
-          <div class="command-result-slug">${escapeHtml(r.slug)}</div>
+          <div class="command-result-slug">${escapeHtml(secondary)}</div>
         </div>
         <span class="command-result-type" title="${escapeHtml(type)}" style="background:${tc.soft};color:${tc.hex}">${escapeHtml(type)}</span>
-      </div>`;
+      </button>`;
     }).join('');
+    cmdInput.setAttribute('aria-activedescendant', 'command-result-0');
   }
 
   cmdResults.addEventListener('click', (e) => {
@@ -1162,9 +1326,17 @@
 
   function updateCmdActive() {
     const els = cmdResults.querySelectorAll('.command-result');
-    els.forEach((el, i) => el.classList.toggle('active', i === cmdIndex));
+    els.forEach((el, i) => {
+      el.classList.toggle('active', i === cmdIndex);
+      el.setAttribute('aria-selected', String(i === cmdIndex));
+    });
     const el = els[cmdIndex];
-    if (el) el.scrollIntoView({ block: 'nearest' });
+    if (el) {
+      cmdInput.setAttribute('aria-activedescendant', el.id);
+      el.scrollIntoView({ block: 'nearest' });
+    } else {
+      cmdInput.removeAttribute('aria-activedescendant');
+    }
   }
 
   // ======================================================================
@@ -1174,7 +1346,7 @@
   function bindGlobalEvents() {
     window.addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName) || '';
-      const inField = tag === 'INPUT' || tag === 'TEXTAREA';
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON';
       const isMeta = e.metaKey || e.ctrlKey;
 
       if (isMeta && (e.key === 'k' || e.key === 'K')) {

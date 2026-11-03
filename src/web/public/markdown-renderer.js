@@ -6,6 +6,75 @@
  */
 window.MarkdownRenderer = (() => {
 
+  const baseMeta = typeof document !== 'undefined'
+    ? document.querySelector('meta[name="granite-base"]')
+    : null;
+  const graniteBase = normalizeBase(baseMeta?.content || '');
+  const hostedMode = graniteBase !== '';
+
+  function normalizeBase(value) {
+    const segments = String(value || '').split('/').filter(Boolean);
+    return segments.length ? '/' + segments.join('/') : '';
+  }
+
+  function decodeUrlEntities(value) {
+    return String(value).replace(/&(?:#(?:x([0-9a-f]{1,6})|(\d{1,7}))|colon|tab|newline|sol|bsol);?/gi, (entity, hex, decimal) => {
+      if (hex || decimal) {
+        const codePoint = Number.parseInt(hex || decimal, hex ? 16 : 10);
+        try { return String.fromCodePoint(codePoint); } catch { return '\uFFFD'; }
+      }
+      const named = entity.slice(1).replace(/;$/, '').toLowerCase();
+      return ({ colon: ':', tab: '\t', newline: '\n', sol: '/', bsol: '\\' })[named] || entity;
+    });
+  }
+
+  // Normalize enough of the URL syntax that browsers cannot hide a scheme
+  // behind HTML entities, ASCII controls, or whitespace before navigation.
+  function isSafeLinkUrl(value) {
+    const normalized = decodeUrlEntities(value)
+      .replace(/[\u0000-\u0020\u007f]/g, '')
+      .trim();
+    if (!normalized || /^[\\/]{2}/.test(normalized)) return false;
+    const scheme = normalized.match(/^([a-z][a-z0-9+.-]*):/i)?.[1]?.toLowerCase();
+    return !scheme || ['http', 'https', 'mailto', 'tel'].includes(scheme);
+  }
+
+  function resolveImageSource(value) {
+    const src = String(value || '').trim();
+    if (!src) return null;
+
+    if (hostedMode) {
+      // Hosted notes must not cause third-party image requests. Only serve
+      // assets from this Granite instance's own /ui/assets route.
+      if (src.startsWith(graniteBase + '/assets/')) return src;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(decodeUrlEntities(src)) || /^[\\/]{2}/.test(src)) {
+        try {
+          const url = new URL(src, window.location.href);
+          if (url.origin !== window.location.origin || !url.pathname.startsWith(graniteBase + '/assets/')) return null;
+          return url.pathname + url.search;
+        } catch {
+          return null;
+        }
+      }
+
+      if (/^[\\/]/.test(src) && !src.startsWith(graniteBase + '/assets/')) {
+        if (src.startsWith('/assets/')) return graniteBase + src;
+        return null;
+      }
+      const assetName = src.replace(/^\.?\/?assets\//, '');
+      if (!assetName || assetName.split(/[\\/]/).includes('..') || /^[\\/]/.test(assetName)) return null;
+      return graniteBase + '/assets/' + assetName;
+    }
+
+    if (/^https?:\/\//i.test(src)) return src;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(decodeUrlEntities(src)) || /^[\\/]{2}/.test(src)) return null;
+    let resolvedSrc = '/assets/' + src.replace(/^\.?\/?assets\//, '');
+    if (window.GRANITE_INSTANCE) {
+      resolvedSrc += (resolvedSrc.includes('?') ? '&' : '?') + 'instance=' + encodeURIComponent(window.GRANITE_INSTANCE);
+    }
+    return resolvedSrc;
+  }
+
   function parseInline(text, outgoingLinks) {
     const re = /(\[\[([^\]]+)\]\])|(`([^`]+)`)|(\*\*(.+?)\*\*)|(\*(.+?)\*)|(\[([^\]]+)\]\(([^)]+)\))|(!\[([^\]]*)\]\(([^)]+)\))/g;
     let result = '';
@@ -35,19 +104,21 @@ window.MarkdownRenderer = (() => {
       } else if (match[7]) {
         result += `<em>${escapeHtml(match[8])}</em>`;
       } else if (match[9]) {
-        result += `<a class="external-link" href="${escapeAttr(match[11])}" target="_blank" rel="noopener">${escapeHtml(match[10])}</a>`;
+        if (isSafeLinkUrl(match[11])) {
+          result += `<a class="external-link" href="${escapeAttr(match[11])}" target="_blank" rel="noopener noreferrer">${escapeHtml(match[10])}</a>`;
+        } else {
+          result += escapeHtml(match[10]);
+        }
       } else if (match[12]) {
         // Image: ![alt](src)
         const alt = match[13];
         const src = match[14];
-        // Resolve relative paths to /assets/. <img> requests can't carry the
-        // X-Granite-Instance header, so the active cloud instance rides along
-        // as a query param for the local gateway to route.
-        let resolvedSrc = src.startsWith('http') ? src : `/assets/${src.replace(/^\.?\/?assets\//, '')}`;
-        if (!src.startsWith('http') && window.GRANITE_INSTANCE) {
-          resolvedSrc += (resolvedSrc.includes('?') ? '&' : '?') + 'instance=' + encodeURIComponent(window.GRANITE_INSTANCE);
+        const resolvedSrc = resolveImageSource(src);
+        if (resolvedSrc) {
+          result += `<img class="md-image" src="${escapeAttr(resolvedSrc)}" alt="${escapeAttr(alt)}" loading="lazy">`;
+        } else {
+          result += escapeHtml(alt);
         }
-        result += `<img class="md-image" src="${escapeAttr(resolvedSrc)}" alt="${escapeAttr(alt)}" loading="lazy">`;
       }
       lastIndex = match.index + match[0].length;
     }
@@ -192,8 +263,10 @@ window.MarkdownRenderer = (() => {
   }
 
   function escapeAttr(str) {
-    return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    return str.replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
   }
 
-  return { render, parseInline, escapeHtml };
+  return { render, parseInline, escapeHtml, escapeAttr, isSafeLinkUrl, resolveImageSource };
 })();

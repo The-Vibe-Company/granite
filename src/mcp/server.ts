@@ -34,6 +34,7 @@ import {
 } from './judge.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { registerReadOnlyApiRoutes } from '../web/api-routes.js';
+import { createDashboard } from '../web/dashboard.js';
 import type { GraniteMcpRuntime } from './runtime.js';
 import type { Query } from '../core/query.js';
 import { createGraniteResources, VAULT_TYPES_URI } from './resources.js';
@@ -1064,6 +1065,11 @@ export function createGraniteMcpHttpApp(runtime: GraniteMcpRuntime, options: Gra
   };
 
   app.use('/mcp', guard);
+
+  app.route('/', createDashboard({
+    vaultRoot: runtime.vaultRoot,
+    getConfig: () => runtime.getConfig(),
+  }, { password: process.env.GRANITE_UI_PASSWORD }));
 
   if (options.webApi) {
     // Read-only vault API for the local UI's instance switcher — same host,
