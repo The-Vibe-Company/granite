@@ -92,8 +92,17 @@ export function createDashboard(source: ReadOnlyApiSource, options: DashboardOpt
   });
   app.use('/ui/*', bodyLimit({ maxSize: 4096 }));
 
-  // Shared presentation only; needed to style the unauthenticated login form.
-  app.get('/ui/style.css', c => c.body(fs.readFileSync(path.join(publicDir, 'style.css')), 200, { 'Content-Type': 'text/css' }));
+  // Presentation only, needed by the unauthenticated sign-in page: the
+  // stylesheet, its self-hosted fonts and the icon. A closed list, so nothing
+  // else under /ui is reachable without a session.
+  const publicFiles: Record<string, [string, string]> = {
+    'style.css': ['dashboard/style.css', 'text/css'],
+    'favicon.svg': ['dashboard/favicon.svg', 'image/svg+xml'],
+    ...Object.fromEntries(DASHBOARD_FONTS.map(font => [`fonts/${font}.woff2`, [`dashboard/fonts/${font}.woff2`, 'font/woff2']])),
+  };
+  for (const [file, [source, mime]] of Object.entries(publicFiles)) {
+    app.get(`/ui/${file}`, c => c.body(fs.readFileSync(path.join(publicDir, source)), 200, { 'Content-Type': mime }));
+  }
 
   app.get('/ui/login', c => {
     if (session(c)) return c.redirect('/ui', 303);
@@ -102,12 +111,13 @@ export function createDashboard(source: ReadOnlyApiSource, options: DashboardOpt
     const csrf = nonce();
     insert(logins, id, { csrf, expires: now() + LOGIN_SECONDS * 1000 });
     setCookie(c, LOGIN_COOKIE, id, { ...cookieOptions, maxAge: LOGIN_SECONDS });
-    return c.html(formPage('Sign in to Granite', `<p>Your personal vault, read only.</p>
+    return c.html(formPage('Sign in to Granite', `<p>Your vault, read only. Browse, search and read your notes.</p>
       <form method="post" action="/ui/login">
       <input type="hidden" name="csrf" value="${csrf}">
       <label for="password">Dashboard password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
-      <button type="submit">Sign in</button></form>`));
+      <button class="btn" type="submit">Sign in</button></form>
+      <p class="note">It cannot change your vault. A session lasts 12 hours.</p>`, { shot: 'contents' }));
   });
   app.post('/ui/login', async c => {
     const ip = clientIp(c);
@@ -153,9 +163,10 @@ export function createDashboard(source: ReadOnlyApiSource, options: DashboardOpt
     }
     await next();
   });
-  app.get('/ui/logout', c => c.html(formPage('Sign out of Granite', `<form method="post" action="/ui/logout">
+  app.get('/ui/logout', c => c.html(formPage('Sign out of Granite', `<p>This ends your session on the server, on this device.</p>
+    <form method="post" action="/ui/logout">
     <input type="hidden" name="csrf" value="${session(c)!.csrf}">
-    <button type="submit">Sign out</button></form><a href="/ui">Back to vault</a>`)));
+    <button class="btn" type="submit">Sign out</button></form><a class="alt" href="/ui">Back to the vault</a>`, { signedIn: true, shot: 'sleep' })));
   app.post('/ui/logout', async c => {
     if (!sameOrigin(c) || !c.req.header('content-type')?.startsWith('application/x-www-form-urlencoded')) return c.text('Invalid form.', 403);
     const form = new URLSearchParams(await c.req.text());
@@ -168,32 +179,66 @@ export function createDashboard(source: ReadOnlyApiSource, options: DashboardOpt
   registerReadOnlyApiRoutes(app, source, { prefix: '/ui', secureAssets: true });
 
   // A closed list prevents traversal and avoids serving arbitrary source files.
+  // The hosted reader has its own front (public/dashboard/); the local
+  // `granite serve` constellation is not served here.
   const staticFiles: Record<string, string> = {
-    'app.js': 'application/javascript',
-    'graph-engine.js': 'application/javascript', 'markdown-renderer.js': 'application/javascript',
-    'type-filters.js': 'application/javascript',
+    'app.js': 'dashboard/app.js',
+    'markdown-renderer.js': 'markdown-renderer.js',
+    'type-filters.js': 'type-filters.js',
   };
-  for (const [file, mime] of Object.entries(staticFiles)) {
-    app.get(`/ui/${file}`, c => c.body(fs.readFileSync(path.join(publicDir, file)), 200, { 'Content-Type': mime }));
+  for (const [file, source] of Object.entries(staticFiles)) {
+    app.get(`/ui/${file}`, c => c.body(fs.readFileSync(path.join(publicDir, source)), 200, { 'Content-Type': 'application/javascript' }));
   }
-  const index = (c: Context) => {
-    const html = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8')
-      .replace(/<link\b[^>]*https:\/\/[^>]*>/g, '')
-      .replace('<head>', '<head><meta name="granite-base" content="/ui">')
-      .replace(/(href|src)="\/(?!\/)/g, '$1="/ui/');
-    return c.html(html);
-  };
+  const index = (c: Context) => c.html(fs.readFileSync(path.join(publicDir, 'dashboard', 'index.html'), 'utf8'));
   app.get('/ui', index);
   app.get('/ui/', index);
   return app;
 }
 
-function formPage(title: string, body: string): string {
+// Self-hosted fonts served to the sign-in page (see public/dashboard/fonts/README.md).
+const DASHBOARD_FONTS = ['literata-latin', 'literata-latin-ext', 'literata-latin-italic', 'literata-latin-ext-italic', 'atkinson-latin', 'atkinson-latin-ext'];
+
+const BRAND_MARK = '<svg class="mark" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-width="2.5"/><g fill="currentColor"><circle cx="11" cy="10" r="1.9"/><circle cx="20" cy="8.5" r="1.3"/><circle cx="17" cy="16" r="2.1"/><circle cx="9" cy="20" r="1.4"/><circle cx="22" cy="21" r="1.7"/><circle cx="14" cy="23.5" r="1.1"/></g></svg>';
+
+// A product shot of the reader in HTML/CSS: placeholder bars only, so it
+// never shows vault content to someone who has not signed in.
+// The same reader asleep, as an e-ink device shows when it is switched off.
+function sleepShot(): string {
+  return `<figure class="shot" aria-hidden="true"><div class="device"><div class="screen sleep">
+    <svg class="sleep-mark" width="96" height="96" viewBox="0 0 32 32"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-width="1.6"/><g fill="currentColor"><circle cx="11" cy="10" r="1.9"/><circle cx="20" cy="8.5" r="1.3"/><circle cx="17" cy="16" r="2.1"/><circle cx="9" cy="20" r="1.4"/><circle cx="22" cy="21" r="1.7"/><circle cx="14" cy="23.5" r="1.1"/></g></svg>
+    <span class="sleep-name">Granite</span><span class="sleep-line">Asleep. Your notes stay where they are.</span>
+  </div></div></figure>`;
+}
+
+function productShot(): string {
+  const row = (type: string, width: number, date: string, on = false) => `<div class="s-row${on ? ' on' : ''}">
+    <div class="l"><span class="bar-line title w${width}"></span><span class="leader"></span><span class="d">${date}</span></div>
+    <div class="m"><span class="type t-${type}">${type}</span><span class="bar-line w${width - 2}"></span></div></div>`;
+  return `<figure class="shot" aria-hidden="true"><div class="device"><div class="screen">
+    <div class="s-bar">${BRAND_MARK}<span>Granite</span><span class="ro">Read only</span></div>
+    <div class="s-title">Contents</div>
+    <div class="s-search"><span class="bar-line w3"></span></div>
+    <div class="s-types"><span>All</span><span>note</span><span>source</span><span>synthesis</span><span>output</span></div>
+    ${row('synthesis', 6, 'today', true)}${row('note', 4, 'yesterday')}${row('source', 5, '3 days ago')}${row('note', 3, '4 days ago')}${row('output', 5, 'Oct 27')}
+  </div></div></figure>`;
+}
+
+const NAV = `<nav class="nav" aria-label="Dashboard"><ul>
+  <li><a href="/ui"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10"/><circle cx="3.5" cy="5" r=".6" fill="currentColor"/><circle cx="3.5" cy="10" r=".6" fill="currentColor"/><circle cx="3.5" cy="15" r=".6" fill="currentColor"/></svg><span>Contents</span></a></li>
+  <li><a href="/ui#q"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4.5 4.5"/></svg><span>Search</span></a></li>
+  <li><a href="/ui/logout" class="out" aria-current="page"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.5H4.5v13H8"/><path d="M12 6.5 15.5 10 12 13.5M15.5 10H7.5"/></svg><span>Sign out</span></a></li>
+</ul></nav>`;
+
+function formPage(title: string, body: string, options: { shot?: 'contents' | 'sleep'; signedIn?: boolean } = {}): string {
   // Only server-authored text and generated hex nonces are interpolated.
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${title}</title><link rel="stylesheet" href="/ui/style.css"></head>
-    <body><main class="dashboard-auth"><h1>${title}</h1>${body}</main></body></html>`;
+    <title>${title}</title><meta name="description" content="A private, read-only reader for one Granite vault.">
+    <meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#e7e5df">
+    <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/ui/style.css"></head>
+    <body class="auth${options.signedIn ? ' app' : ''}"><a class="skip" href="#main">Skip to content</a>
+    <header class="bar"><div class="bar-in">${options.signedIn ? `<a class="brand" href="/ui">${BRAND_MARK}<span>Granite</span></a>` : `<span class="brand">${BRAND_MARK}<span>Granite</span></span>`}<span class="ro">Read only</span>${options.signedIn ? NAV : ''}</div></header>
+    <main id="main" class="auth-main${options.shot ? '' : ' solo'}"><section class="auth-card"><h1>${title}</h1>${body}</section>${options.shot === 'contents' ? productShot() : options.shot === 'sleep' ? sleepShot() : ''}</main></body></html>`;
 }
 function messagePage(message: string): string {
-  return formPage('Granite', `<p role="alert">${message}</p><a href="/ui/login">Return to sign in</a>`);
+  return formPage('Granite', `<p class="alert" role="alert">${message}</p><a class="btn" href="/ui/login">Return to sign in</a>`);
 }

@@ -91,7 +91,9 @@ To enable it on your own personal deployment, set these Railway service variable
 
 After applying the variables through your normal deployment process, visit
 `https://<your-domain>/ui` and sign in. Browse or search notes, combine type and tag
-filters, and follow outgoing links and backlinks in the reader. The dashboard
+filters, and follow outgoing links and backlinks in the reader. Searches, filters and
+the open note live in the address (`/ui?q=…&type=…&tag=…&note=…`), so Back, reload and
+bookmarks work; opening such an address still requires a signed-in session. The dashboard
 mounts only read routes; it cannot create, edit or delete notes and has no cloud
 instance proxy. `/mcp` still uses its existing bearer authentication and `/health`
 remains public.
@@ -120,7 +122,8 @@ Railway's proxy share its IP bucket, and the global limit also covers distribute
 attempts. Backoff can temporarily delay the owner as well as an attacker.
 
 Private pages and API responses use `no-store`, a restrictive CSP and framing
-protection. Hosted pages load no external fonts or images; local vault images
+protection. Hosted pages load no external fonts, scripts or images (the dashboard's
+fonts are self-hosted under the SIL Open Font License); local vault images
 are authenticated and other attachments download with a sandbox policy. Keep
 passwords out of vault notes too: read-only access still exposes private content.
 
