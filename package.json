@@ -43,7 +43,8 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:heap": "node --expose-gc --import tsx scripts/mcp-heap.ts"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.4",
@@ -59,7 +60,7 @@
     "mammoth": "^1.12.0",
     "uuid": "^11.0.0",
     "xlsx": "^0.18.5",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.0.0",
