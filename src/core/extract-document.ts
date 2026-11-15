@@ -2,8 +2,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as childProcess from 'node:child_process';
-import mammoth from 'mammoth';
-import XLSX from 'xlsx';
 import { XMLParser } from 'fast-xml-parser';
 import { unzipSync } from 'fflate';
 import { defaultImportedDocumentTitle } from './import-document.js';
@@ -65,6 +63,7 @@ export async function extractDocument(filePath: string): Promise<ExtractDocument
 }
 
 async function extractDocx(filePath: string): Promise<ExtractDocumentResult> {
+  const { default: mammoth } = await import('mammoth');
   const result = await mammoth.extractRawText({ path: filePath });
   const rawText = normalizeRawText(result.value);
   const limits = result.messages.map(message => `[${message.type}] ${message.message}`);
@@ -89,6 +88,7 @@ async function extractDocx(filePath: string): Promise<ExtractDocumentResult> {
 }
 
 async function extractXlsx(filePath: string): Promise<ExtractDocumentResult> {
+  const { default: XLSX } = await import('xlsx');
   const workbook = XLSX.readFile(filePath, { cellText: true, cellDates: false });
   const sections: string[] = [];
 
