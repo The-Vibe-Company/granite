@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { validateAuthor } from '../core/author.js';
 import { loadConfig } from '../core/config.js';
 import { requireVaultRoot } from '../core/vault.js';
 import { listNotes } from '../core/note.js';
@@ -12,6 +13,7 @@ import { writeFacts, type FactProposal } from '../core/fact-writer.js';
 import { jsonSuccess } from '../core/json-output.js';
 
 export interface FactsOptions {
+  author?: string;
   json?: boolean;
   /** Read proposals as JSON on stdin and commit the ones that pass the invariants. */
   write?: boolean;
@@ -116,8 +118,10 @@ export function factsCommand(options: FactsOptions): void {
   // The autonomous path: turn proposals into fact notes, enforcing provenance,
   // idempotency and an audit trail, with no human in the loop.
   if (options.write || options.dryRun) {
+    const apply = options.write === true && options.dryRun !== true;
+    if (apply) validateAuthor(options.author);
     const proposals = readProposalsFromStdin();
-    const result = writeFacts(vaultRoot, config, proposals, { apply: options.write === true && options.dryRun !== true });
+    const result = writeFacts(vaultRoot, config, proposals, { apply, author: options.author });
     if (options.json) {
       console.log(jsonSuccess({
         applied: options.write === true && options.dryRun !== true,

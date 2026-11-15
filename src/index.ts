@@ -152,12 +152,13 @@ program
   .description('Read the fact ledger — current state, retirements and contradictions')
   .option('--json', 'Output as JSON (agent-friendly)')
   .option('--write', 'Read fact proposals as JSON on stdin and commit the ones that pass')
+  .option('--author <author>', 'Required with --write unless --dry-run: lowercase writer slug, e.g. stan, dave, granite')
   .option('--dry-run', 'With --write, plan the writes without creating anything')
   .option('--contradictions', 'Only report facts that disagree')
   .option('--superseded', 'Only report facts retired by the recency rule')
   .option('--subject <name>', 'Current state of one subject')
   .option('--relation <name>', 'Narrow --subject to one relation')
-  .action((options: { json?: boolean; write?: boolean; dryRun?: boolean; contradictions?: boolean; superseded?: boolean; subject?: string; relation?: string }) => {
+  .action((options: { author?: string; json?: boolean; write?: boolean; dryRun?: boolean; contradictions?: boolean; superseded?: boolean; subject?: string; relation?: string }) => {
     factsCommand(options);
   });
 

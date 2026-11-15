@@ -368,6 +368,7 @@ Issues and focused PRs are welcome. For local development, read [CLAUDE.md](CLAU
 Every note mutation requires `author` (MCP/HTTP) or `--author` (CLI), e.g.
 `stan`, `dave`, or `granite`. Use 1–64 lowercase letters/digits/hyphens/underscores,
 starting with a letter or digit; `unknown` is reserved and rejected on writes.
+`granite facts --write` also requires `--author`; fact reads and `--dry-run` do not.
 `source` remains separate and unchanged. Update writing clients together with deployment:
 requests without `author` will be rejected.
 
