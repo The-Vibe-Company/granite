@@ -95,14 +95,14 @@ export function createApp(
     // Create a new note (local vault only — cloud instances are read-only)
     app.post('/api/notes', async (c) => {
       const body = await c.req.json();
-      const { type, title, body: noteBody } = body;
+      const { type, title, body: noteBody, author } = body;
 
       if (!type || !title) {
         return c.json({ error: 'type and title are required' }, 400);
       }
 
       try {
-        const note = createNote(vaultRoot, config, type, title, noteBody || undefined);
+        const note = createNote(vaultRoot, config, type, title, noteBody || undefined, { author });
         syncVaultIndexAfterNoteWrite(vaultRoot, config, note, { rebuild: true });
 
         return c.json({

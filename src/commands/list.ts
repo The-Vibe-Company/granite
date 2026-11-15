@@ -4,9 +4,11 @@ import { listNotes } from '../core/note.js';
 import { jsonSuccess } from '../core/json-output.js';
 import type { Note } from '../core/types.js';
 
-const AVAILABLE_FIELDS = ['slug', 'title', 'type', 'created', 'modified', 'tags', 'aliases', 'status', 'source', 'review_state', 'durability', 'derived_from', 'filepath'];
+const AVAILABLE_FIELDS = ['slug', 'title', 'type', 'created', 'modified', 'tags', 'aliases', 'status', 'source', 'creator', 'last_modifier', 'review_state', 'durability', 'derived_from', 'filepath'];
 
 interface ListOptions {
+  creator?: string;
+  lastModifier?: string;
   type?: string;
   status?: string;
   source?: string;
@@ -26,6 +28,8 @@ function pickFields(note: Note, fields: string[]): Record<string, unknown> {
       case 'tags': out.tags = note.frontmatter.tags; break;
       case 'aliases': out.aliases = note.frontmatter.aliases; break;
       case 'status': out.status = note.frontmatter.status; break;
+      case 'creator': out.creator = note.frontmatter.creator; break;
+      case 'last_modifier': out.last_modifier = note.frontmatter.last_modifier; break;
       case 'source': out.source = note.frontmatter.source; break;
       case 'review_state': out.review_state = note.frontmatter.review_state; break;
       case 'durability': out.durability = note.frontmatter.durability; break;
@@ -56,6 +60,9 @@ export function listCommand(options: ListOptions): void {
   if (options.since) {
     notes = notes.filter(n => n.frontmatter.modified >= options.since!);
   }
+
+  if (options.creator) notes = notes.filter(n => n.frontmatter.creator === options.creator);
+  if (options.lastModifier) notes = notes.filter(n => n.frontmatter.last_modifier === options.lastModifier);
 
   // Sort by modified desc
   notes.sort((a, b) => b.frontmatter.modified.localeCompare(a.frontmatter.modified));

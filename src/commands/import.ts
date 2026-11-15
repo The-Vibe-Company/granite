@@ -1,3 +1,4 @@
+import { validateAuthor } from '../core/author.js';
 import { loadConfig } from '../core/config.js';
 import { isDocumentParsingDisabled } from '../core/extract-document.js';
 import { importDocument } from '../core/import-document.js';
@@ -7,6 +8,7 @@ import { recommendNote, formatRecommendations } from '../core/recommendations.js
 import { requireVaultRoot } from '../core/vault.js';
 
 interface ImportOptions {
+  author?: string;
   content?: string;
   title?: string;
   tag?: string;
@@ -20,6 +22,7 @@ export function importDocumentCommand(filePath: string, options: ImportOptions =
     process.exit(1);
   }
 
+  validateAuthor(options.author);
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
   const content = options.content?.trim();
@@ -33,6 +36,7 @@ export function importDocumentCommand(filePath: string, options: ImportOptions =
   try {
     imported = importDocument(vaultRoot, config, filePath, {
       content,
+      author: options.author,
       title: options.title,
       tags: splitCsv(options.tag),
       aliases: splitCsv(options.alias),

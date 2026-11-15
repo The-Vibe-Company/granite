@@ -990,6 +990,8 @@
       ['Aliases', aliases.length ? aliases.join(', ') : '—'],
       ['Status', note.status],
       ['Source', note.source],
+      ['Creator', note.creator || 'unknown'],
+      ['Last modifier', note.last_modifier || 'unknown'],
       ['Review state', note.review_state],
       ['Durability', note.durability],
       ['Derived from', derivedFrom.length ? derivedFrom.join(', ') : '—'],

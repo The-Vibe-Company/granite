@@ -39,7 +39,7 @@ describe('import command', () => {
     }) as never);
 
     try {
-      expect(() => importDocumentCommand('whatever.pdf', { content: 'text' })).toThrow('process.exit(1)');
+      expect(() => importDocumentCommand('whatever.pdf', { author: 'stan', content: 'text' })).toThrow('process.exit(1)');
       expect(String(errorSpy.mock.calls[0]?.[0])).toContain('GRANITE_DISABLE_DOCUMENT_PARSING');
       expect(exitSpy).toHaveBeenCalledWith(1);
     } finally {
@@ -53,7 +53,7 @@ describe('import command', () => {
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    importDocumentCommand(inputFile, {
+    importDocumentCommand(inputFile, { author: 'stan',
       content: 'Transformer paper excerpt.\n\nKey idea: attention replaces recurrence.',
       json: true,
     });

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { validateAuthor, recordModification } from '../core/author.js';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { attachAsset, assetResourceUri, completeAssetFiles, readAssetResource, type AttachedAsset } from '../core/assets.js';
@@ -85,6 +86,8 @@ export interface NoteSummary {
   aliases: string[];
   status: NoteStatus;
   source: NoteSource;
+  creator: string;
+  last_modifier: string;
   review_state: ReviewState;
   durability: Durability;
   derived_from: string[];
@@ -231,6 +234,7 @@ export interface AdjudicateGardenOpportunityResult {
 }
 
 export interface CreateNoteInput {
+  author?: string;
   title: string;
   type?: string;
   body?: string;
@@ -245,6 +249,7 @@ export interface CreateNoteInput {
 }
 
 export interface CaptureNoteInput {
+  author?: string;
   text: string;
   type?: string;
   tags?: string[];
@@ -258,6 +263,7 @@ export interface CaptureNoteInput {
 }
 
 export interface UpdateNoteInput {
+  author?: string;
   type?: string;
   title?: string;
   body?: string;
@@ -273,6 +279,8 @@ export interface UpdateNoteInput {
 }
 
 export interface ListNotesInput {
+  creator?: string;
+  last_modifier?: string;
   type?: string;
   status?: NoteStatus;
   source?: NoteSource;
@@ -305,6 +313,7 @@ export interface ImportedDocumentAsset {
 }
 
 export interface ImportDocumentInput {
+  author?: string;
   file_path: string;
   content: string;
   title?: string;
@@ -457,6 +466,9 @@ export class GraniteMcpRuntime {
     if (input.source) {
       notes = notes.filter(note => note.frontmatter.source === input.source);
     }
+
+    if (input.creator !== undefined) notes = notes.filter(note => note.frontmatter.creator === input.creator);
+    if (input.last_modifier !== undefined) notes = notes.filter(note => note.frontmatter.last_modifier === input.last_modifier);
 
     if (input.since) {
       const since = input.since;
@@ -929,6 +941,7 @@ export class GraniteMcpRuntime {
   }
 
   createNote(input: CreateNoteInput): NoteMutationResult {
+    validateAuthor(input.author);
     const resolvedType = input.type ?? this.config.defaults.note_type;
     const typeConfig = this.config.note_types[resolvedType];
     if (!typeConfig) {
@@ -950,6 +963,7 @@ export class GraniteMcpRuntime {
         : undefined;
 
     const created = createNote(this.vaultRoot, this.config, resolvedType, input.title, bodyOverride, {
+      author: input.author,
       db: this.db,
       extraFrontmatter: input.fields,
     });
@@ -964,7 +978,7 @@ export class GraniteMcpRuntime {
     };
 
     if (hasMetadataMutations(metadataMutations)) {
-      this.applyMutations(created.filepath, metadataMutations);
+      this.applyMutations(created.filepath, { ...metadataMutations, author: input.author }, false);
     }
 
     const result = this.afterWrite(created.slug, true);
@@ -1006,6 +1020,7 @@ export class GraniteMcpRuntime {
   }
 
   captureNote(input: CaptureNoteInput): NoteMutationResult {
+    validateAuthor(input.author);
     const content = input.text.trim();
     if (!content) {
       throw new Error('Capture text cannot be empty.');
@@ -1015,6 +1030,7 @@ export class GraniteMcpRuntime {
     const title = firstLine.length > 60 ? `${firstLine.slice(0, 60).trim()}...` : firstLine;
 
     return this.createNote({
+      author: input.author,
       title,
       type: input.type,
       body: ensureTrailingNewline(content),
@@ -1030,7 +1046,9 @@ export class GraniteMcpRuntime {
   }
 
   importDocument(input: ImportDocumentInput): ImportDocumentResult {
+    validateAuthor(input.author);
     const imported = importDocumentToVault(this.vaultRoot, this.config, input.file_path, {
+      author: input.author,
       content: input.content,
       title: input.title,
       tags: input.tags,
@@ -1054,6 +1072,7 @@ export class GraniteMcpRuntime {
   }
 
   updateNote(slug: string, input: UpdateNoteInput): NoteMutationResult {
+    validateAuthor(input.author);
     if (input.type !== undefined) {
       return this.reviseNote(slug, input);
     }
@@ -1079,6 +1098,7 @@ export class GraniteMcpRuntime {
   }
 
   reviseNote(slug: string, input: UpdateNoteInput): NoteMutationResult {
+    validateAuthor(input.author);
     const note = this.requireNote(slug);
     const raw = fs.readFileSync(note.filepath, 'utf-8');
     const { frontmatter, body: existingBody } = parseFrontmatter(raw);
@@ -1167,6 +1187,7 @@ export class GraniteMcpRuntime {
     }
 
     frontmatter.modified = new Date().toISOString();
+    recordModification(frontmatter, input.author, frontmatter.modified);
     fs.writeFileSync(nextFilepath, serializeFrontmatter(frontmatter, body), 'utf-8');
 
     if (movedType && nextFilepath !== note.filepath && fs.existsSync(note.filepath)) {
@@ -1176,7 +1197,8 @@ export class GraniteMcpRuntime {
     return this.afterWrite(slug, movedType || input.title !== undefined || (input.aliases?.length ?? 0) > 0);
   }
 
-  disposeNote(slug: string, mode: 'archive' | 'delete' = 'archive'): DisposeNoteResult {
+  disposeNote(slug: string, mode: 'archive' | 'delete' = 'archive', author?: string): DisposeNoteResult {
+    validateAuthor(author);
     const note = this.requireNote(slug);
     const backlinks = this.getBacklinks(slug);
     const derivedChildren = this.readAllNotes().filter(candidate =>
@@ -1184,7 +1206,7 @@ export class GraniteMcpRuntime {
     ).length;
 
     if (mode === 'archive') {
-      const revised = this.reviseNote(slug, { status: 'archived' });
+      const revised = this.reviseNote(slug, { status: 'archived', author });
       return {
         slug,
         mode,
@@ -1780,6 +1802,8 @@ export class GraniteMcpRuntime {
       aliases: note.frontmatter.aliases,
       status: note.frontmatter.status,
       source: note.frontmatter.source,
+      creator: String(note.frontmatter.creator ?? 'unknown'),
+      last_modifier: String(note.frontmatter.last_modifier ?? 'unknown'),
       review_state: note.frontmatter.review_state,
       durability: note.frontmatter.durability,
       derived_from: note.frontmatter.derived_from,
@@ -1800,7 +1824,8 @@ export class GraniteMcpRuntime {
     };
   }
 
-  private applyMutations(filepath: string, input: Omit<UpdateNoteInput, 'append'> & { append?: string }): void {
+  private applyMutations(filepath: string, input: Omit<UpdateNoteInput, 'append'> & { append?: string }, track = true): void {
+    validateAuthor(input.author);
     const raw = fs.readFileSync(filepath, 'utf-8');
     const { frontmatter, body: existingBody } = parseFrontmatter(raw);
     let body = existingBody;
@@ -1849,7 +1874,10 @@ export class GraniteMcpRuntime {
       body = `${body.trimEnd()}\n${input.append}\n`;
     }
 
-    frontmatter.modified = new Date().toISOString();
+    if (track) {
+      frontmatter.modified = new Date().toISOString();
+      recordModification(frontmatter, input.author, frontmatter.modified);
+    }
     fs.writeFileSync(filepath, serializeFrontmatter(frontmatter, body), 'utf-8');
   }
 

@@ -48,7 +48,7 @@ That's the thesis of this project. No agent handy? Granite is a complete tool on
 ```bash
 npm install -g granite-mem
 granite init                        # note / source / synthesis / output
-granite new "Ideas worth stealing"
+granite new "Ideas worth stealing" --author stan
 granite search "steal"
 granite serve                       # web UI + constellation graph
 ```
@@ -272,17 +272,17 @@ Conflict policies, push/pull details, and access management live in [docs/SYNC.m
 |------------|----------------------------|------------------------------------------------------------------|
 | setup      | `granite init`             | create a vault (optionally from a `--template`)                  |
 | setup      | `granite status`           | vault health and what to do next                                 |
-| capture    | `granite new <title>`      | create a typed note                                              |
-| capture    | `granite add [text]`       | quick raw capture (arg or stdin) into the inbox                  |
+| capture    | `granite new <title> --author stan`      | create a typed note                                              |
+| capture    | `granite add [text] --author stan`       | quick raw capture (arg or stdin) into the inbox                  |
 | capture    | `granite attach <file>`    | attach an image/video/PDF and get markdown to embed              |
 | capture    | `granite extract <file>`   | raw text from PDF/DOCX/XLSX/PPTX without importing               |
-| capture    | `granite import <file> --content <text>` | attach a document and create a linked source note |
+| capture    | `granite import <file> --content <text> --author stan` | attach a document and create a linked source note |
 | query      | `granite list`             | browse notes by type, status, source, date                       |
 | query      | `granite show <slug>`      | read a full note                                                 |
 | query      | `granite search <query>`   | full-text search across the vault                                |
-| query      | `granite open <slug>`      | open a note in `$EDITOR`                                         |
+| query      | `granite open <slug> --author stan`      | open a note in `$EDITOR`                                         |
 | query      | `granite wakeup`           | compact vault snapshot for loading agent context                 |
-| compile    | `granite edit <slug>`      | update fields, body, tags, protocol state                        |
+| compile    | `granite edit <slug> --author stan`      | update fields, body, tags, protocol state                        |
 | compile    | `granite backlinks <slug>` | inbound links to a note                                          |
 | compile    | `granite suggest-links <slug>` | unlinked mentions worth linking                              |
 | compile    | `granite recommend <slug>` | what to link, tag, or write next                                 |
@@ -362,3 +362,19 @@ Issues and focused PRs are welcome. For local development, read [CLAUDE.md](CLAU
 <p align="center">
   <sub>Ship your agent a home. Then give it the keys.</sub>
 </p>
+
+### Note authorship
+
+Every note mutation requires `author` (MCP/HTTP) or `--author` (CLI), e.g.
+`stan`, `dave`, or `granite`. Use 1–64 lowercase letters/digits/hyphens/underscores,
+starting with a letter or digit; `unknown` is reserved and rejected on writes.
+`granite facts --write` also requires `--author`; fact reads and `--dry-run` do not.
+`source` remains separate and unchanged. Update writing clients together with deployment:
+requests without `author` will be rejected.
+
+Frontmatter stores immutable `creator`, `last_modifier`, and `author_history`
+(entries `{author, date}` with ISO timestamps, capped at the newest 10 entries,
+including creation until it ages out). Legacy missing authors read as `unknown`
+without rewriting files. Revising a legacy note preserves its unknown creator.
+`granite_query` accepts exact-match `creator` and `last_modifier` filters, including
+`unknown`; CLI list accepts `--creator` and `--last-modifier`.

@@ -129,7 +129,9 @@ Present a structured health report:
 ## Rules
 
 - **Fix before flagging** — if you can fix it (broken link, missing tag), do it. Only flag issues that need human judgment.
-- **Don't delete** — archive instead. `granite edit <slug> --status archived`
+- **Don't delete** — archive instead. `granite edit <slug> --status archived --author stan`
 - **Don't edit locked notes** — flag them for the user.
 - **Explain why** — for each suggestion, say what it improves (graph density, discoverability, compilation readiness).
 - **End with next action** — always tell the user the single most valuable thing to do next (usually `/granite-capture` or `/granite-compile`).
+
+Authorship: replace `stan` in write examples with your own bot short slug (e.g. `granite` or `dave`); use `stan` only for Stan.

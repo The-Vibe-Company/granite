@@ -27,7 +27,7 @@ describe('granite MCP server', () => {
       fs.mkdirSync(path.join(tmpDir, typeConfig.folder), { recursive: true });
     }
 
-    createNote(tmpDir, config, 'note', 'MCP Note', 'Granite MCP test note.\n');
+    createNote(tmpDir, config, 'note', 'MCP Note', 'Granite MCP test note.\n', { author: 'stan' });
 
     runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
     server = createGraniteMcpServer(runtime);
@@ -115,7 +115,7 @@ describe('granite MCP server', () => {
   it('captures notes and understands them through the public MCP tools', async () => {
     const created = await client.callTool({
       name: 'granite_capture_knowledge',
-      arguments: {
+      arguments: { author: 'stan',
         title: 'Linked Result',
         type: 'note',
         body: 'This note points to [[MCP Note]].\n',
@@ -141,7 +141,7 @@ describe('granite MCP server', () => {
   it('archives notes through granite_dispose_note', async () => {
     const disposed = await client.callTool({
       name: 'granite_dispose_note',
-      arguments: { slug: 'mcp-note' },
+      arguments: { author: 'stan', slug: 'mcp-note' },
     });
 
     const disposedText = extractTextContent(disposed);
@@ -155,7 +155,7 @@ describe('granite MCP server', () => {
 
     const imported = await client.callTool({
       name: 'granite_import_document',
-      arguments: {
+      arguments: { author: 'stan',
         file_path: inputFile,
         content: 'MCP source content\n\nKey point: preserve the extracted text in the note.',
       },
@@ -213,7 +213,7 @@ describe('granite MCP server', () => {
 
     await client.callTool({
       name: 'granite_import_document',
-      arguments: {
+      arguments: { author: 'stan',
         file_path: inputFile,
         content: 'Workflow source content',
       },
@@ -242,7 +242,7 @@ describe('granite MCP server', () => {
 
     await client.callTool({
       name: 'granite_import_document',
-      arguments: {
+      arguments: { author: 'stan',
         file_path: inputFile,
         content: 'Workflow source content',
         title: 'Workflow Source',

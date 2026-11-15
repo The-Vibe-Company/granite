@@ -427,6 +427,7 @@ function registerTools(
     title: 'Capture Granite Knowledge',
     description: 'Capture new knowledge into the vault. Use this for raw captures, semi-structured notes, or deliberately titled note drafts. Returns recommendations for what to connect or write next.',
     inputSchema: {
+      author: z.string({ error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).refine(value => value !== 'unknown', { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).describe('Required author: bot short name or stan; 1–64 lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Examples: stan, dave, granite. unknown is reserved.'),
       text: z.string().optional().describe('Raw text to capture. Required unless title and body are both provided.'),
       title: z.string().optional().describe('Optional explicit title when creating a more deliberate draft.'),
       body: z.string().optional().describe('Optional explicit body when creating a more deliberate draft.'),
@@ -444,6 +445,7 @@ function registerTools(
   }, async (args) => {
     if (args.title) {
       const result = runtime.createNote({
+        author: args.author,
         title: args.title,
         type: args.type,
         body: args.body ?? args.text,
@@ -468,6 +470,7 @@ function registerTools(
     }
 
     const result = runtime.captureNote({
+      author: args.author,
       text: args.body ?? args.text,
       type: args.type,
       tags: args.tags,
@@ -490,6 +493,7 @@ function registerTools(
     title: 'Import Granite Document',
     description: 'Import a local document into the vault by attaching the file, creating a linked source note, and storing caller-provided document content in that note. This tool does not read, clean, or summarize the document for you.',
     inputSchema: {
+      author: z.string({ error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).refine(value => value !== 'unknown', { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).describe('Required author: bot short name or stan; 1–64 lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Examples: stan, dave, granite. unknown is reserved.'),
       file_path: z.string().describe('Absolute or relative path to the local document file to import.'),
       content: z.string().min(1).describe('Caller-provided document text or cleaned extracted content to preserve in the source note body. Required.'),
       title: z.string().optional().describe('Optional explicit title for the source note. Defaults to a title derived from the filename.'),
@@ -497,8 +501,8 @@ function registerTools(
       aliases: z.array(z.string()).optional().describe('Aliases to add immediately to the source note.'),
     },
     annotations: writeAnnotations,
-  }, async ({ file_path, content, title, tags, aliases }) => {
-    const result = runtime.importDocument({ file_path, content, title, tags, aliases });
+  }, async ({ author, file_path, content, title, tags, aliases }) => {
+    const result = runtime.importDocument({ author, file_path, content, title, tags, aliases });
     const summary = renderImportDocumentMarkdown(result);
 
     return {
@@ -717,6 +721,7 @@ function registerTools(
     title: 'Revise Granite Note',
     description: 'Make a targeted revision to an existing note. Use this when a workflow prompt tells you exactly what to change, or when you need a precise manual intervention.',
     inputSchema: {
+      author: z.string({ error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).refine(value => value !== 'unknown', { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).describe('Required author: bot short name or stan; 1–64 lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Examples: stan, dave, granite. unknown is reserved.'),
       slug: z.string().describe('Slug of the note to revise.'),
       type: buildTypeSchema(runtime, 'Optional new note type. Use this to promote a note between vault types (e.g. note → synthesis). Must be one of the vault-configured types.'),
       title: z.string().optional().describe('Replace the note title.'),
@@ -759,15 +764,19 @@ function registerTools(
     description: 'Run a structured query over notes by type and indexed fields. Use this when you want "all meetings with Monka Care since April" or "all people at organization X". Only fields declared in indexed_fields on the type are queryable.',
     inputSchema: {
       type: z.string().optional().describe('Restrict to a note type.'),
+      creator: z.string().optional().describe('Exact creator filter; unknown matches legacy notes.'),
+      last_modifier: z.string().optional().describe('Exact last modifier filter; unknown matches legacy notes.'),
       where: z.record(z.string(), z.any()).optional().describe('Equality filters or {eq,in,gte,lte} operators keyed by field name.'),
       sort_field: z.string().optional().describe('Field to sort by (modified, created, title, or an indexed field).'),
       sort_dir: z.enum(['asc', 'desc']).optional().describe('Sort direction. Defaults to desc.'),
       limit: z.number().int().min(1).max(200).optional().describe('Maximum results. Defaults to 25.'),
     },
     annotations: readOnlyAnnotations,
-  }, async ({ type, where, sort_field, sort_dir, limit }) => {
+  }, async ({ type, creator, last_modifier, where, sort_field, sort_dir, limit }) => {
     const result = runtime.query({
       type,
+      creator,
+      last_modifier,
       where: where as Query['where'],
       sort: sort_field ? { field: sort_field, dir: sort_dir ?? 'desc' } : undefined,
       limit,
@@ -803,12 +812,13 @@ function registerTools(
     title: 'Dispose Granite Note',
     description: 'Remove a note from the active knowledge loop. Archive by default; delete only when you are intentionally discarding the note.',
     inputSchema: {
+      author: z.string({ error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).refine(value => value !== 'unknown', { error: 'Pass author: a 1–64 character lowercase slug (letters, digits, hyphen, underscore), e.g. stan, dave, granite; unknown is reserved.' }).describe('Required author: bot short name or stan; 1–64 lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Examples: stan, dave, granite. unknown is reserved.'),
       slug: z.string().describe('Slug of the note to archive or delete.'),
       mode: z.enum(['archive', 'delete']).optional().describe('How to dispose of the note. Defaults to archive.'),
     },
     annotations: writeAnnotations,
-  }, async ({ slug, mode }) => {
-    const result = runtime.disposeNote(slug, mode ?? 'archive');
+  }, async ({ slug, mode, author }) => {
+    const result = runtime.disposeNote(slug, mode ?? 'archive', author);
     return toolResult(renderDisposeNoteMarkdown(result));
   });
 }

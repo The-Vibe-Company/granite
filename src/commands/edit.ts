@@ -1,3 +1,4 @@
+import { validateAuthor, recordModification } from '../core/author.js';
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { loadConfig } from '../core/config.js';
@@ -14,6 +15,7 @@ import { recommendNote, formatRecommendations } from '../core/recommendations.js
 import { syncVaultIndexAfterNoteWrite } from '../core/index-db.js';
 
 interface EditOptions {
+  author?: string;
   body?: string;
   append?: string;
   title?: string;
@@ -27,6 +29,7 @@ interface EditOptions {
 }
 
 export function editCommand(slug: string, options: EditOptions): void {
+  validateAuthor(options.author);
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
   const note = findNoteBySlug(vaultRoot, config, slug);
@@ -103,6 +106,7 @@ export function editCommand(slug: string, options: EditOptions): void {
     }
 
     frontmatter.modified = new Date().toISOString();
+    recordModification(frontmatter, options.author, frontmatter.modified);
     fs.writeFileSync(existingNote.filepath, serializeFrontmatter(frontmatter, body), 'utf-8');
 
     const updatedNote = readNote(existingNote.filepath);
@@ -113,26 +117,35 @@ export function editCommand(slug: string, options: EditOptions): void {
     printRecommendations(vaultRoot, config, existingNote.filepath, 'incremental');
   } else {
     // Interactive edit (human mode) — open in $EDITOR
-    const editor = process.env.EDITOR || 'vi';
-    const statBefore = fs.statSync(existingNote.filepath).mtimeMs;
+    const editor = config.defaults.editor === '$EDITOR'
+      ? process.env.EDITOR || 'vi'
+      : config.defaults.editor;
+    const contentBefore = fs.readFileSync(existingNote.filepath, 'utf-8');
+    let editorFailed = false;
 
     try {
       execSync(`${editor} "${existingNote.filepath}"`, { stdio: 'inherit' });
     } catch {
-      console.error(`Failed to open editor: ${editor}`);
-      process.exit(1);
+      editorFailed = true;
     }
 
     // If file was modified, update the modified timestamp in frontmatter
-    const statAfter = fs.statSync(existingNote.filepath).mtimeMs;
-    if (statAfter !== statBefore) {
-      const { frontmatter, body } = parseFrontmatter(fs.readFileSync(existingNote.filepath, 'utf-8'));
+    const contentAfter = fs.readFileSync(existingNote.filepath, 'utf-8');
+    if (contentAfter !== contentBefore) {
+      const { frontmatter, body } = parseFrontmatter(contentAfter);
+      frontmatter.creator = existingNote.frontmatter.creator;
+      frontmatter.author_history = existingNote.frontmatter.author_history;
       frontmatter.modified = new Date().toISOString();
+      recordModification(frontmatter, options.author, frontmatter.modified);
       fs.writeFileSync(existingNote.filepath, serializeFrontmatter(frontmatter, body), 'utf-8');
       syncVaultIndexAfterNoteWrite(vaultRoot, config, readNote(existingNote.filepath), { rebuild: true });
 
       console.log(`Updated: ${existingNote.filepath}`);
       printRecommendations(vaultRoot, config, existingNote.filepath, 'incremental');
+    }
+    if (editorFailed) {
+      console.error(`Editor exited unsuccessfully: ${editor}`);
+      process.exit(1);
     }
   }
 }

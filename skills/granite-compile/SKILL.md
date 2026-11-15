@@ -49,7 +49,7 @@ If a synthesis already exists on this topic:
 Create the synthesis:
 
 ```bash
-granite new "<Topic> synthesis" --type synthesis --source agent --review-state draft --derived-from slug-a,slug-b,slug-c --json
+granite new "<Topic> synthesis" --type synthesis --source agent --review-state draft --derived-from slug-a,slug-b,slug-c --json --author stan
 ```
 
 Write a body that:
@@ -59,7 +59,7 @@ Write a body that:
 - **Scopes** — states clearly what it covers and what it doesn't
 
 ```bash
-granite edit <slug> --body $'## Scope
+granite edit <slug> --author stan --body $'## Scope
 
 <what this synthesis covers and doesn'\''t>
 
@@ -128,3 +128,5 @@ A synthesis is **not** a summary. It's compiled knowledge:
 - **Link bidirectionally** — the synthesis links to sources, and sources should link back.
 - **Surface tensions** — if notes disagree, say so. Don't flatten nuance.
 - **Open questions drive the loop** — a good synthesis tells you what to capture next.
+
+Authorship: replace `stan` in write examples with your own bot short slug (e.g. `granite` or `dave`); use `stan` only for Stan.

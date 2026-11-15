@@ -56,10 +56,10 @@ describe('runQuery', () => {
   });
 
   it('filters by type and indexed field equality', () => {
-    createNote(tmpDir, config, 'meeting', 'Kickoff', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'Kickoff', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-03-01', organization: 'acme' },
     });
-    createNote(tmpDir, config, 'meeting', 'Review', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'Review', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-03-15', organization: 'beta' },
     });
 
@@ -84,10 +84,10 @@ describe('runQuery', () => {
   });
 
   it('supports gte/lte range filters on dates', () => {
-    createNote(tmpDir, config, 'meeting', 'Old', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'Old', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2025-01-01' },
     });
-    createNote(tmpDir, config, 'meeting', 'Recent', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'Recent', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-03-15' },
     });
 
@@ -110,13 +110,13 @@ describe('runQuery', () => {
   });
 
   it('filters by status and source on notes, eq object, lte and between', () => {
-    createNote(tmpDir, config, 'meeting', 'A', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'A', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2025-06-01' },
     });
-    createNote(tmpDir, config, 'meeting', 'B', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'B', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-03-01' },
     });
-    createNote(tmpDir, config, 'meeting', 'C', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'C', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-12-31' },
     });
 
@@ -145,10 +145,10 @@ describe('runQuery', () => {
   });
 
   it('supports in filter and sorts by indexed field', () => {
-    createNote(tmpDir, config, 'meeting', 'One', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'One', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-01-10', organization: 'acme' },
     });
-    createNote(tmpDir, config, 'meeting', 'Two', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'Two', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-02-10', organization: 'beta' },
     });
 
@@ -177,7 +177,7 @@ describe('runQuery', () => {
   });
 
   it('ignores empty in filter and returns untyped rows', () => {
-    createNote(tmpDir, config, 'note', 'Plain', 'body\n');
+    createNote(tmpDir, config, 'note', 'Plain', 'body\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -189,7 +189,7 @@ describe('runQuery', () => {
   });
 
   it('empty in filter matches nothing', () => {
-    createNote(tmpDir, config, 'meeting', 'E', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'E', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-03-01', organization: 'acme' },
     });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
@@ -200,10 +200,10 @@ describe('runQuery', () => {
   });
 
   it('queries across types when no type is passed, unioning indexed_fields', () => {
-    createNote(tmpDir, config, 'meeting', 'AcmeSync', '## Summary\n', {
+    createNote(tmpDir, config, 'meeting', 'AcmeSync', '## Summary\n', { author: 'stan',
       extraFrontmatter: { date: '2026-03-01', organization: 'acme' },
     });
-    createNote(tmpDir, config, 'organization', 'Acme', '', {
+    createNote(tmpDir, config, 'organization', 'Acme', '', { author: 'stan',
       extraFrontmatter: { kind: 'client' },
     });
 

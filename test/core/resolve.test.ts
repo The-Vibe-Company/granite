@@ -26,7 +26,7 @@ describe('resolveText', () => {
   });
 
   it('matches by exact slug and surfaces FTS fallbacks', () => {
-    createNote(tmpDir, config, 'note', 'Monka Care', 'Health startup in France.\n');
+    createNote(tmpDir, config, 'note', 'Monka Care', 'Health startup in France.\n', { author: 'stan' });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
 
@@ -49,8 +49,8 @@ describe('resolveText', () => {
   });
 
   it('returns [] for empty input and filters by target_type', () => {
-    createNote(tmpDir, config, 'note', 'Apollo', 'Space note.\n');
-    createNote(tmpDir, config, 'source', 'Apollo Source', 'content.\n');
+    createNote(tmpDir, config, 'note', 'Apollo', 'Space note.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'source', 'Apollo Source', 'content.\n', { author: 'stan' });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
 
@@ -63,7 +63,7 @@ describe('resolveText', () => {
   });
 
   it('matches by exact title and alias', () => {
-    createNote(tmpDir, config, 'note', 'Exact Title', 'body.\n', {
+    createNote(tmpDir, config, 'note', 'Exact Title', 'body.\n', { author: 'stan',
       extraFrontmatter: { aliases: ['Nickname'] },
     });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
@@ -82,7 +82,7 @@ describe('resolveText', () => {
     // Regression: vaults written before the trailing-separator fix hold slugs like
     // `long-title-`. slugify() strips trailing separators, so an exact-slug lookup
     // missed such a note in both directions before the fallback existed.
-    const legacy = createNote(tmpDir, config, 'note', 'Long Title', 'Body.\n');
+    const legacy = createNote(tmpDir, config, 'note', 'Long Title', 'Body.\n', { author: 'stan' });
     fs.renameSync(legacy.filepath, path.join(path.dirname(legacy.filepath), `${legacy.slug}-.md`));
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
@@ -101,9 +101,9 @@ describe('resolveText', () => {
     // A vault can hold both `ambiguous.md` and a legacy `ambiguous-.md`. Each spelling
     // must reach its own note; collapsing the separator form onto the bare slug would
     // leave the legacy note unreachable.
-    const legacy = createNote(tmpDir, config, 'note', 'Ambiguous', 'Legacy body.\n');
+    const legacy = createNote(tmpDir, config, 'note', 'Ambiguous', 'Legacy body.\n', { author: 'stan' });
     fs.renameSync(legacy.filepath, path.join(path.dirname(legacy.filepath), `${legacy.slug}-.md`));
-    createNote(tmpDir, config, 'note', 'Ambiguous', 'Bare body.\n');
+    createNote(tmpDir, config, 'note', 'Ambiguous', 'Bare body.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);

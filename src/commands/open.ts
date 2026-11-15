@@ -1,22 +1,6 @@
-import { execSync } from 'node:child_process';
-import { loadConfig } from '../core/config.js';
-import { requireVaultRoot } from '../core/vault.js';
-import { findNoteBySlug } from '../core/note.js';
+import { editCommand } from './edit.js';
 
-export function openNote(slug: string): void {
-  const vaultRoot = requireVaultRoot();
-  const config = loadConfig(vaultRoot);
-  const note = findNoteBySlug(vaultRoot, config, slug);
-
-  if (!note) {
-    console.error(`Note not found: "${slug}"`);
-    process.exit(1);
-  }
-  const existingNote = note;
-
-  const editor = config.defaults.editor === '$EDITOR'
-    ? process.env.EDITOR || 'vi'
-    : config.defaults.editor;
-
-  execSync(`${editor} "${existingNote.filepath}"`, { stdio: 'inherit' });
+// Opening an editor is a write surface too; use the same attribution path.
+export function openNote(slug: string, options: { author?: string } = {}): void {
+  editCommand(slug, options);
 }

@@ -46,13 +46,13 @@ granite backlinks <slug> --json
 Create an `output` note:
 
 ```bash
-granite new "<Deliverable title>" --type output --source agent --durability ephemeral --derived-from synth-slug,note-slug --json
+granite new "<Deliverable title>" --type output --source agent --durability ephemeral --derived-from synth-slug,note-slug --json --author stan
 ```
 
 Write the body adapted to the audience:
 
 ```bash
-granite edit <slug> --body $'## Goal
+granite edit <slug> --author stan --body $'## Goal
 
 <what this output achieves>
 
@@ -112,3 +112,5 @@ Tell the user:
 - **Audience-first** — the same knowledge looks different for engineers vs. executives vs. customers.
 - **Outputs feed the loop** — if generating the output reveals a knowledge gap, tell the user what to capture next.
 - **Regenerable** — a good output can be regenerated from its sources. The durable knowledge matters more.
+
+Authorship: replace `stan` in write examples with your own bot short slug (e.g. `granite` or `dave`); use `stan` only for Stan.

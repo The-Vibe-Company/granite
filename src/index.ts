@@ -84,6 +84,7 @@ program
 
 program
   .command('new')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Create a structured note — search first to avoid duplicates')
   .argument('<title>', 'Note title')
   .option('-t, --type <type>', 'Note type (note, source, synthesis, output)')
@@ -99,6 +100,7 @@ program
 
 program
   .command('add')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Quick-capture raw text into the vault — the fastest way to get something in')
   .argument('[text]', 'Note text (or pipe via stdin)')
   .option('--json', 'Output as JSON (agent-friendly)')
@@ -110,6 +112,8 @@ program
 
 program
   .command('list')
+  .option('--creator <author>', 'Exact creator slug, including unknown')
+  .option('--last-modifier <author>', 'Exact last modifier slug, including unknown')
   .alias('ls')
   .description('Browse the vault — filter by type, status, source, or date')
   .option('-t, --type <type>', 'Filter by note type')
@@ -148,12 +152,13 @@ program
   .description('Read the fact ledger — current state, retirements and contradictions')
   .option('--json', 'Output as JSON (agent-friendly)')
   .option('--write', 'Read fact proposals as JSON on stdin and commit the ones that pass')
+  .option('--author <author>', 'Required with --write unless --dry-run: lowercase writer slug, e.g. stan, dave, granite')
   .option('--dry-run', 'With --write, plan the writes without creating anything')
   .option('--contradictions', 'Only report facts that disagree')
   .option('--superseded', 'Only report facts retired by the recency rule')
   .option('--subject <name>', 'Current state of one subject')
   .option('--relation <name>', 'Narrow --subject to one relation')
-  .action((options: { json?: boolean; write?: boolean; dryRun?: boolean; contradictions?: boolean; superseded?: boolean; subject?: string; relation?: string }) => {
+  .action((options: { author?: string; json?: boolean; write?: boolean; dryRun?: boolean; contradictions?: boolean; superseded?: boolean; subject?: string; relation?: string }) => {
     factsCommand(options);
   });
 
@@ -175,6 +180,7 @@ program
 
 program
   .command('edit')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Refine a note — append, rewrite, promote status, add tags and links')
   .argument('<slug>', 'Note slug')
   .option('--body <text>', 'Replace the note body')
@@ -193,10 +199,11 @@ program
 
 program
   .command('open')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite')
   .description('Open a note in your editor')
   .argument('<slug>', 'Note slug')
-  .action((slug: string) => {
-    openNote(slug);
+  .action((slug: string, options) => {
+    openNote(slug, options);
   });
 
 program
@@ -263,6 +270,7 @@ program
 
 program
   .command('import <file>')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Import a document as a source note plus linked asset, with required caller-provided content. Does not read or clean the document.')
   .requiredOption('--content <content>', 'Caller-provided document text to store in the source note')
   .option('--title <title>', 'Explicit note title. Defaults to a title derived from the filename')

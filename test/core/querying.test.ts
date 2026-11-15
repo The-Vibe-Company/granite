@@ -29,7 +29,7 @@ describe('querying helpers', () => {
   });
 
   it('returns normalized search results with snippet and score', () => {
-    createNote(tmpDir, config, 'note', 'Graph Memory', 'A graph memory stores linked ideas.\n');
+    createNote(tmpDir, config, 'note', 'Graph Memory', 'A graph memory stores linked ideas.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -48,9 +48,9 @@ describe('querying helpers', () => {
   });
 
   it('returns backlinks sorted by source title', () => {
-    createNote(tmpDir, config, 'note', 'Zulu Source', 'Points to [[Target Note]].\n');
-    createNote(tmpDir, config, 'note', 'Alpha Source', 'Also points to [[Target Note]].\n');
-    createNote(tmpDir, config, 'note', 'Target Note', 'Referenced note.\n');
+    createNote(tmpDir, config, 'note', 'Zulu Source', 'Points to [[Target Note]].\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Alpha Source', 'Also points to [[Target Note]].\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Target Note', 'Referenced note.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -62,8 +62,8 @@ describe('querying helpers', () => {
   });
 
   it('suggests notes mentioned in body and skips existing wikilinks', () => {
-    createNote(tmpDir, config, 'note', 'Machine Learning', 'Base concept.\n');
-    createNote(tmpDir, config, 'note', 'Large Language Model', 'Alias-heavy concept.\n');
+    createNote(tmpDir, config, 'note', 'Machine Learning', 'Base concept.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Large Language Model', 'Alias-heavy concept.\n', { author: 'stan' });
 
     const llmNotePath = path.join(tmpDir, config.note_types.note.folder, 'large-language-model.md');
     const llmContent = fs.readFileSync(llmNotePath, 'utf-8');
@@ -84,7 +84,7 @@ describe('querying helpers', () => {
         'An LLM can be a foundation model.',
         'There is already a wikilink to [[Machine Learning]].',
       ].join('\n'),
-    );
+    { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);

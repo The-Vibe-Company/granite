@@ -190,8 +190,8 @@ granite list --type synthesis --json slug,title,review_state
 
 **Step 4 — Act:**
 ```bash
-granite new "State of transformer scaling" -t synthesis --review-state reviewed --derived-from attention-is-all-you-need,scaling-laws --json
-granite edit state-of-transformer-scaling --append $'\n## Links\n\n- [[scaling-laws]]'
+granite new "State of transformer scaling" -t synthesis --review-state reviewed --derived-from attention-is-all-you-need,scaling-laws --json --author stan
+granite edit state-of-transformer-scaling --append $'\n## Links\n\n- [[scaling-laws]]' --author stan
 ```
 
 ### 4.3 MCP resource/tool mapping

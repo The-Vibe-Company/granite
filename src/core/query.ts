@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import type { GraniteConfig } from './types.js';
 
 export interface Query {
+  creator?: string;
+  last_modifier?: string;
   type?: string;
   where?: Record<string, QueryFilter>;
   sort?: { field: string; dir: 'asc' | 'desc' };
@@ -35,9 +37,12 @@ export function runQuery(
   const indexed = typeConfig
     ? new Set(typeConfig.indexed_fields ?? [])
     : new Set(Object.values(config.note_types).flatMap(t => t.indexed_fields ?? []));
-  const whereEntries = Object.entries(query.where ?? {});
+  const whereEntries = Object.entries({ ...query.where,
+    ...(query.creator !== undefined ? { creator: query.creator } : {}),
+    ...(query.last_modifier !== undefined ? { last_modifier: query.last_modifier } : {}),
+  });
   for (const [field] of whereEntries) {
-    if (field === 'status' || field === 'source') continue;
+    if (field === 'status' || field === 'source' || field === 'creator' || field === 'last_modifier') continue;
     if (!indexed.has(field)) {
       throw new Error(
         `Field "${field}" is not indexed on type "${type ?? '<any>'}". Declare it in indexed_fields first.`,
@@ -64,6 +69,15 @@ export function runQuery(
     }
     if (field === 'source') {
       const { sql, p } = renderFilter('n.source', filter);
+      where.push(sql);
+      whereParams.push(...p);
+      return;
+    }
+    if (field === 'creator' || field === 'last_modifier') {
+      const alias = `a${idx}`;
+      joins.push(`LEFT JOIN note_fields ${alias} ON ${alias}.slug = n.slug AND ${alias}.field_name = ?`);
+      joinParams.push(field);
+      const { sql, p } = renderFilter(`COALESCE(${alias}.field_value, 'unknown')`, filter);
       where.push(sql);
       whereParams.push(...p);
       return;
@@ -134,7 +148,7 @@ export function runQuery(
     title: r.title,
     type: r.type,
     modified: r.modified,
-    fields: fieldMap.get(r.slug) ?? {},
+    fields: { creator: 'unknown', last_modifier: 'unknown', ...fieldMap.get(r.slug) },
   }));
 }
 

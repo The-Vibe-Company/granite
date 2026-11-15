@@ -79,6 +79,12 @@ export interface GraniteConfig {
 }
 
 export interface NoteFrontmatter {
+  /** Original author, or unknown for legacy notes. Never changed by a revision. */
+  creator?: string;
+  /** Author of the last successful write. */
+  last_modifier?: string;
+  /** Most recent ten modifications, including creation until it ages out. */
+  author_history?: Array<{ author: string; date: string }>;
   id: string;
   title: string;
   type: string;

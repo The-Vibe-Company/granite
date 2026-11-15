@@ -103,11 +103,11 @@ it('serves authenticated read/write MCP on PORT and retains changes across resta
   const tools = await client!.listTools();
   expect(tools.tools.some(tool => tool.name === 'granite_import_document')).toBe(false);
   // First note in an empty vault has no link candidates, so no Jev network call.
-  const created = await client!.callTool({ name: 'granite_capture_knowledge', arguments: {
+  const created = await client!.callTool({ name: 'granite_capture_knowledge', arguments: { author: 'stan',
     title: 'Cloud persistence', type: 'note', body: 'Created over remote MCP.', source: 'agent',
   } });
   expect(created.isError).not.toBe(true);
-  const revised = await client!.callTool({ name: 'granite_revise_note', arguments: {
+  const revised = await client!.callTool({ name: 'granite_revise_note', arguments: { author: 'stan',
     slug: 'cloud-persistence', append: 'Updated over remote MCP.', source: 'agent',
   } });
   expect(revised.isError).not.toBe(true);

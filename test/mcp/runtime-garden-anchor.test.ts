@@ -18,7 +18,7 @@ describe('garden anchor proximity', () => {
     const config = loadConfig(root);
     for (const type of Object.values(config.note_types)) fs.mkdirSync(path.join(root, type.folder), { recursive: true });
     const add = (title: string, body: string, days: number, tags: string[] = []) => {
-      const note = createNote(root, config, 'note', title, body);
+      const note = createNote(root, config, 'note', title, body, { author: 'stan' });
       const parsed = parseFrontmatter(fs.readFileSync(note.filepath, 'utf8'));
       parsed.frontmatter.status = 'active';
       parsed.frontmatter.review_state = 'draft';
@@ -53,7 +53,7 @@ describe('garden anchor proximity', () => {
       ['Global Peer', 'Broad customer cluster.'],
       ['Other Peer', 'Broad customer cluster.'],
     ]) {
-      const note = createNote(root, config, 'note', title, body);
+      const note = createNote(root, config, 'note', title, body, { author: 'stan' });
       const parsed = parseFrontmatter(fs.readFileSync(note.filepath, 'utf8'));
       parsed.frontmatter.status = 'active';
       parsed.frontmatter.review_state = 'draft';
