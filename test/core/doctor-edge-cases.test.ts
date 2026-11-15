@@ -45,8 +45,8 @@ describe('doctor edge cases', () => {
   });
 
   it('reports missing frontmatter fields, duplicate slugs, and duplicate ids', () => {
-    const first = createNote(tmpDir, config, 'note', 'Shared Title', 'Body.\n');
-    const second = createNote(tmpDir, config, 'source', 'Another Title', 'Body.\n');
+    const first = createNote(tmpDir, config, 'note', 'Shared Title', 'Body.\n', { author: 'stan' });
+    const second = createNote(tmpDir, config, 'source', 'Another Title', 'Body.\n', { author: 'stan' });
 
     const firstContent = fs.readFileSync(first.filepath, 'utf-8');
     const { frontmatter } = parseFrontmatter(firstContent);

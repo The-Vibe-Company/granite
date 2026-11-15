@@ -38,8 +38,8 @@ describe('index-db', () => {
   });
 
   it('indexes notes and makes them searchable', () => {
-    createNote(tmpDir, config, 'note', 'Machine Learning', 'ML is about training models on data.\n');
-    createNote(tmpDir, config, 'note', 'Neural Networks', 'Neural nets are a type of [[Machine Learning]] model.\n');
+    createNote(tmpDir, config, 'note', 'Machine Learning', 'ML is about training models on data.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Neural Networks', 'Neural nets are a type of [[Machine Learning]] model.\n', { author: 'stan' });
 
     const dbPath = path.join(tmpDir, '.granite', 'index.db');
     const db = createDatabase(dbPath);
@@ -58,8 +58,8 @@ describe('index-db', () => {
   });
 
   it('indexes links between notes', () => {
-    createNote(tmpDir, config, 'note', 'Note A', 'Links to [[Note B]] here.\n');
-    createNote(tmpDir, config, 'note', 'Note B', 'This is note B.\n');
+    createNote(tmpDir, config, 'note', 'Note A', 'Links to [[Note B]] here.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Note B', 'This is note B.\n', { author: 'stan' });
 
     const dbPath = path.join(tmpDir, '.granite', 'index.db');
     const db = createDatabase(dbPath);
@@ -75,8 +75,8 @@ describe('index-db', () => {
   });
 
   it('backlinks query returns correct results', () => {
-    createNote(tmpDir, config, 'note', 'Source', 'See [[Target]] for details.\n');
-    createNote(tmpDir, config, 'note', 'Target', 'I am the target.\n');
+    createNote(tmpDir, config, 'note', 'Source', 'See [[Target]] for details.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Target', 'I am the target.\n', { author: 'stan' });
 
     const dbPath = path.join(tmpDir, '.granite', 'index.db');
     const db = createDatabase(dbPath);
@@ -91,7 +91,7 @@ describe('index-db', () => {
   });
 
   it('handles broken links gracefully', () => {
-    createNote(tmpDir, config, 'note', 'Broken', 'Links to [[Nonexistent]] page.\n');
+    createNote(tmpDir, config, 'note', 'Broken', 'Links to [[Nonexistent]] page.\n', { author: 'stan' });
 
     const dbPath = path.join(tmpDir, '.granite', 'index.db');
     const db = createDatabase(dbPath);
@@ -106,7 +106,7 @@ describe('index-db', () => {
   });
 
   it('falls back to a transient rebuilt index when the persisted index is readonly', () => {
-    createNote(tmpDir, config, 'note', 'Note A', 'Target.\n');
+    createNote(tmpDir, config, 'note', 'Note A', 'Target.\n', { author: 'stan' });
 
     const dbDir = path.join(tmpDir, '.granite');
     const dbPath = path.join(dbDir, 'index.db');
@@ -114,7 +114,7 @@ describe('index-db', () => {
     rebuildIndex(tmpDir, config, db);
     db.close();
 
-    createNote(tmpDir, config, 'note', 'Note B', 'Links to [[Note A]].\n');
+    createNote(tmpDir, config, 'note', 'Note B', 'Links to [[Note A]].\n', { author: 'stan' });
 
     const readonlyPaths = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`].filter(fs.existsSync);
     try {

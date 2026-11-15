@@ -36,7 +36,7 @@ describe.each<McpAccessRole>(['read', 'write'])('MCP resource tools (%s role)', 
     for (const type of Object.values(config.note_types)) {
       fs.mkdirSync(path.join(tmpDir, type.folder), { recursive: true });
     }
-    createNote(tmpDir, config, 'note', 'MCP Note', '## Summary\nResource parity\n\n## Details\n', { extraFrontmatter: { project: 'Granite' } });
+    createNote(tmpDir, config, 'note', 'MCP Note', '## Summary\nResource parity\n\n## Details\n', { author: 'stan', extraFrontmatter: { project: 'Granite' } });
     fs.mkdirSync(path.join(tmpDir, 'assets'));
     fs.writeFileSync(path.join(tmpDir, 'assets', 'rapport été #1.txt'), 'Texte UTF-8 : été\n');
     fs.writeFileSync(path.join(tmpDir, 'assets', 'source %.pdf'), Buffer.from([0x25, 0x50, 0x44, 0x46, 0, 0xff]));

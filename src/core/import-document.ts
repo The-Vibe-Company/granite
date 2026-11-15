@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { validateAuthor } from './author.js';
 import path from 'node:path';
 import { attachAsset, type AttachedAsset } from './assets.js';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter.js';
@@ -6,6 +7,7 @@ import { createNote, readNote } from './note.js';
 import type { GraniteConfig, Note } from './types.js';
 
 export interface ImportDocumentOptions {
+  author?: string;
   title?: string;
   tags?: string[];
   aliases?: string[];
@@ -23,9 +25,10 @@ export function importDocument(
   filePath: string,
   options: ImportDocumentOptions = {},
 ): ImportedDocument {
+  validateAuthor(options.author);
   const asset = attachAsset(vaultRoot, filePath);
   const title = normalizeTitle(options.title) ?? defaultImportedDocumentTitle(filePath);
-  const created = createNote(vaultRoot, config, 'source', title, buildImportedDocumentBody(asset, options.content));
+  const created = createNote(vaultRoot, config, 'source', title, buildImportedDocumentBody(asset, options.content), { author: options.author });
 
   const raw = fs.readFileSync(created.filepath, 'utf-8');
   const { frontmatter, body } = parseFrontmatter(raw);

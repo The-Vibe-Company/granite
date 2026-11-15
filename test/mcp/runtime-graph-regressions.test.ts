@@ -25,14 +25,14 @@ describe('runtime graph regressions', () => {
   });
 
   it('counts one inbound source note when that note mentions the target repeatedly', () => {
-    createNote(tmpDir, config, 'note', 'Target', 'The target entity.\n');
+    createNote(tmpDir, config, 'note', 'Target', 'The target entity.\n', { author: 'stan' });
     createNote(
       tmpDir,
       config,
       'note',
       'Source',
       'First context for [[target]].\nSecond context for [[target]].\n',
-    );
+    { author: 'stan' });
 
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
     try {

@@ -46,8 +46,8 @@ describe('doctor', () => {
   });
 
   it('reports no issues for a healthy vault', () => {
-    createNote(tmpDir, config, 'note', 'A', 'Links to [[B]].\n');
-    createNote(tmpDir, config, 'note', 'B', 'Links to [[A]].\n');
+    createNote(tmpDir, config, 'note', 'A', 'Links to [[B]].\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'B', 'Links to [[A]].\n', { author: 'stan' });
     const db = getDb();
     const issues = runDoctor(tmpDir, config, db);
     db.close();
@@ -58,7 +58,7 @@ describe('doctor', () => {
   });
 
   it('detects broken wikilinks', () => {
-    createNote(tmpDir, config, 'note', 'Broken Links', 'See [[Ghost Note]] and [[Another Ghost]].\n');
+    createNote(tmpDir, config, 'note', 'Broken Links', 'See [[Ghost Note]] and [[Another Ghost]].\n', { author: 'stan' });
     const db = getDb();
     const issues = runDoctor(tmpDir, config, db);
     db.close();
@@ -67,7 +67,7 @@ describe('doctor', () => {
   });
 
   it('detects orphan notes', () => {
-    createNote(tmpDir, config, 'note', 'Lonely', 'No links here.\n');
+    createNote(tmpDir, config, 'note', 'Lonely', 'No links here.\n', { author: 'stan' });
     const db = getDb();
     const issues = runDoctor(tmpDir, config, db);
     db.close();
@@ -77,7 +77,7 @@ describe('doctor', () => {
 
   it('detects line limit violations', () => {
     const longBody = Array(220).fill('This is a line of text.').join('\n') + '\n';
-    createNote(tmpDir, config, 'note', 'Too Long', longBody);
+    createNote(tmpDir, config, 'note', 'Too Long', longBody, { author: 'stan' });
     const db = getDb();
     const issues = runDoctor(tmpDir, config, db);
     db.close();
@@ -87,7 +87,7 @@ describe('doctor', () => {
   });
 
   it('warns when a synthesis has no provenance', () => {
-    createNote(tmpDir, config, 'synthesis', 'Synthesis Without Sources', '## Scope\n\nBody.\n');
+    createNote(tmpDir, config, 'synthesis', 'Synthesis Without Sources', '## Scope\n\nBody.\n', { author: 'stan' });
     const db = getDb();
     const issues = runDoctor(tmpDir, config, db);
     db.close();
@@ -103,7 +103,7 @@ describe('doctor', () => {
     // separators, so such a slug never slugified back to itself and the note's own
     // canonical slug was reported as a broken wikilink.
     const title = 'OpenAI × Hugging Face — model evaluation security incident (July 2026)';
-    const target = createNote(tmpDir, config, 'source', title, 'Body.\n');
+    const target = createNote(tmpDir, config, 'source', title, 'Body.\n', { author: 'stan' });
     expect(target.slug.endsWith('-')).toBe(false);
 
     // Simulate a vault written before the fix: the file keeps the separator the cut
@@ -115,7 +115,7 @@ describe('doctor', () => {
       `With the separator: [[${target.slug}-]].`,
       `Without the separator: [[${target.slug}]].`,
       '',
-    ].join('\n'));
+    ].join('\n'), { author: 'stan' });
 
     const db = getDb();
     const issues = runDoctor(tmpDir, config, db);

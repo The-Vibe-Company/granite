@@ -31,6 +31,7 @@ describe('web note creation', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        author: 'stan',
         type: 'note',
         title: 'Web Created Note',
         body: 'Unique web body.\n',
@@ -52,6 +53,7 @@ describe('web note creation', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        author: 'stan',
         type: 'note',
         title: 'Graph Seed',
         body: 'Anchor note.\n',
@@ -63,6 +65,7 @@ describe('web note creation', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        author: 'stan',
         type: 'note',
         title: 'Graph Leaf',
         body: 'Connects to [[Graph Seed]].\n',

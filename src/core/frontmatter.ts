@@ -1,4 +1,5 @@
 import matter from 'gray-matter';
+import { normalizeAuthor, normalizeAuthorHistory } from './author.js';
 import type { NoteFrontmatter } from './types.js';
 import {
   normalizeDurability,
@@ -11,6 +12,9 @@ import {
 export function parseFrontmatter(content: string): { frontmatter: NoteFrontmatter; body: string } {
   const { data, content: body } = matter(content);
   const fm: NoteFrontmatter = {
+    creator: normalizeAuthor(data.creator),
+    last_modifier: normalizeAuthor(data.last_modifier),
+    author_history: normalizeAuthorHistory(data.author_history),
     id: toFrontmatterString(data.id),
     title: toFrontmatterString(data.title),
     type: toFrontmatterString(data.type),

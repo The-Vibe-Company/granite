@@ -84,6 +84,7 @@ program
 
 program
   .command('new')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Create a structured note — search first to avoid duplicates')
   .argument('<title>', 'Note title')
   .option('-t, --type <type>', 'Note type (note, source, synthesis, output)')
@@ -99,6 +100,7 @@ program
 
 program
   .command('add')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Quick-capture raw text into the vault — the fastest way to get something in')
   .argument('[text]', 'Note text (or pipe via stdin)')
   .option('--json', 'Output as JSON (agent-friendly)')
@@ -110,6 +112,8 @@ program
 
 program
   .command('list')
+  .option('--creator <author>', 'Exact creator slug, including unknown')
+  .option('--last-modifier <author>', 'Exact last modifier slug, including unknown')
   .alias('ls')
   .description('Browse the vault — filter by type, status, source, or date')
   .option('-t, --type <type>', 'Filter by note type')
@@ -175,6 +179,7 @@ program
 
 program
   .command('edit')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Refine a note — append, rewrite, promote status, add tags and links')
   .argument('<slug>', 'Note slug')
   .option('--body <text>', 'Replace the note body')
@@ -193,10 +198,11 @@ program
 
 program
   .command('open')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite')
   .description('Open a note in your editor')
   .argument('<slug>', 'Note slug')
-  .action((slug: string) => {
-    openNote(slug);
+  .action((slug: string, options) => {
+    openNote(slug, options);
   });
 
 program
@@ -263,6 +269,7 @@ program
 
 program
   .command('import <file>')
+  .requiredOption('--author <author>', 'Writer short slug, e.g. stan, dave, granite (not unknown)')
   .description('Import a document as a source note plus linked asset, with required caller-provided content. Does not read or clean the document.')
   .requiredOption('--content <content>', 'Caller-provided document text to store in the source note')
   .option('--title <title>', 'Explicit note title. Defaults to a title derived from the filename')

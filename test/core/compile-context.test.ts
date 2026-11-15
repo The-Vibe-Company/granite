@@ -65,13 +65,13 @@ describe('compileContext', () => {
   });
 
   it('compiles organization context with Team and Recent meetings sections', () => {
-    createNote(tmpDir, config, 'organization', 'Acme', '## Identity\n', {
+    createNote(tmpDir, config, 'organization', 'Acme', '## Identity\n', { author: 'stan',
       extraFrontmatter: { kind: 'client' },
     });
-    createNote(tmpDir, config, 'person', 'Alice', '## Context\nWorks at [[acme]].\n', {
+    createNote(tmpDir, config, 'person', 'Alice', '## Context\nWorks at [[acme]].\n', { author: 'stan',
       extraFrontmatter: { organization: 'acme' },
     });
-    createNote(tmpDir, config, 'meeting', 'Kickoff 2026', '## Summary\n[[acme]] kickoff.\n', {
+    createNote(tmpDir, config, 'meeting', 'Kickoff 2026', '## Summary\n[[acme]] kickoff.\n', { author: 'stan',
       extraFrontmatter: { date: '2026-03-01', organization: 'acme' },
     });
 
@@ -90,8 +90,8 @@ describe('compileContext', () => {
   });
 
   it('compiles a topic by searching and grouping by type', () => {
-    createNote(tmpDir, config, 'note', 'Distillation notes', 'Notes on distillation.\n');
-    createNote(tmpDir, config, 'organization', 'Distillery Co', 'A distillation company.\n');
+    createNote(tmpDir, config, 'note', 'Distillation notes', 'Notes on distillation.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'organization', 'Distillery Co', 'A distillation company.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -118,8 +118,8 @@ describe('compileContext', () => {
   });
 
   it('includes backlinks section when present', () => {
-    createNote(tmpDir, config, 'note', 'Target', 'Target note.\n');
-    createNote(tmpDir, config, 'note', 'Source', 'See [[target]].\n');
+    createNote(tmpDir, config, 'note', 'Target', 'Target note.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Source', 'See [[target]].\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -132,15 +132,15 @@ describe('compileContext', () => {
   });
 
   it('deduplicates repeated mentions before applying the backlink limit', () => {
-    createNote(tmpDir, config, 'note', 'Target', 'Target note.\n');
+    createNote(tmpDir, config, 'note', 'Target', 'Target note.\n', { author: 'stan' });
     createNote(
       tmpDir,
       config,
       'note',
       'Source',
       'First context for [[target]].\nSecond context for [[target]].\n',
-    );
-    createNote(tmpDir, config, 'note', 'Z Other source', 'Another note linking [[target]].\n');
+    { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Z Other source', 'Another note linking [[target]].\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);

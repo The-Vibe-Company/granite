@@ -28,10 +28,10 @@ describe('recommendations', () => {
   });
 
   it('recommends linked notes, tags, and a next step from local context', () => {
-    const source = createNote(tmpDir, config, 'source', 'Attention Is All You Need', 'Transformer source note.\n');
+    const source = createNote(tmpDir, config, 'source', 'Attention Is All You Need', 'Transformer source note.\n', { author: 'stan' });
     setTags(source.filepath, ['transformers', 'attention']);
 
-    const synthesis = createNote(tmpDir, config, 'synthesis', 'Transformer Architecture', 'Compiled view of transformers.\n');
+    const synthesis = createNote(tmpDir, config, 'synthesis', 'Transformer Architecture', 'Compiled view of transformers.\n', { author: 'stan' });
     setTags(synthesis.filepath, ['transformers', 'architecture']);
 
     const note = createNote(
@@ -40,7 +40,7 @@ describe('recommendations', () => {
       'source',
       'Scaling source',
       'Transformer architecture and attention patterns matter for scaling.\n',
-    );
+    { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -74,7 +74,7 @@ describe('recommendations', () => {
       'source',
       'Semantic Search Source',
       'Semantic retrieval helps a note system find related ideas.\n',
-    );
+    { author: 'stan' });
     setTags(source.filepath, ['search']);
 
     const synthesis = createNote(
@@ -83,7 +83,7 @@ describe('recommendations', () => {
       'synthesis',
       'Embeddings for Notes',
       'Vector retrieval improves knowledge discovery in a note vault.\n',
-    );
+    { author: 'stan' });
     setTags(synthesis.filepath, ['embeddings']);
 
     const target = createNote(
@@ -92,7 +92,7 @@ describe('recommendations', () => {
       'note',
       'Semantic retrieval for a vault',
       'A local note system should surface related knowledge quickly.\n',
-    );
+    { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -108,14 +108,14 @@ describe('recommendations', () => {
   });
 
   it('does not re-suggest notes that are already linked', () => {
-    createNote(tmpDir, config, 'source', 'Attention Source', 'Core source.\n');
+    createNote(tmpDir, config, 'source', 'Attention Source', 'Core source.\n', { author: 'stan' });
     const launch = createNote(
       tmpDir,
       config,
       'note',
       'Launch note',
       'We should revisit [[Attention Source]] before publishing.\n',
-    );
+    { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -152,10 +152,10 @@ describe('recommendations', () => {
   });
 
   it('covers next-step and add-now branches for the default knowledge-oriented types', () => {
-    const note = createNote(tmpDir, config, 'note', 'Memory Graph');
-    const source = createNote(tmpDir, config, 'source', 'Attention Paper');
-    const synthesis = createNote(tmpDir, config, 'synthesis', 'Transformer State');
-    const output = createNote(tmpDir, config, 'output', 'Team Brief');
+    const note = createNote(tmpDir, config, 'note', 'Memory Graph', undefined, { author: 'stan' });
+    const source = createNote(tmpDir, config, 'source', 'Attention Paper', undefined, { author: 'stan' });
+    const synthesis = createNote(tmpDir, config, 'synthesis', 'Transformer State', undefined, { author: 'stan' });
+    const output = createNote(tmpDir, config, 'output', 'Team Brief', undefined, { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -203,14 +203,14 @@ describe('recommendations', () => {
   });
 
   it('supports incremental recommendation refreshes', () => {
-    createNote(tmpDir, config, 'synthesis', 'Granite', 'Local-first system.\n');
+    createNote(tmpDir, config, 'synthesis', 'Granite', 'Local-first system.\n', { author: 'stan' });
     const note = createNote(
       tmpDir,
       config,
       'source',
       'Fresh note',
       'Granite keeps markdown notes portable.\n',
-    );
+    { author: 'stan' });
 
     const recommendations = recommendNote(tmpDir, config, readNote(note.filepath), {
       strategy: 'incremental',

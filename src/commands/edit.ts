@@ -1,3 +1,4 @@
+import { validateAuthor, recordModification } from '../core/author.js';
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { loadConfig } from '../core/config.js';
@@ -14,6 +15,7 @@ import { recommendNote, formatRecommendations } from '../core/recommendations.js
 import { syncVaultIndexAfterNoteWrite } from '../core/index-db.js';
 
 interface EditOptions {
+  author?: string;
   body?: string;
   append?: string;
   title?: string;
@@ -27,6 +29,7 @@ interface EditOptions {
 }
 
 export function editCommand(slug: string, options: EditOptions): void {
+  validateAuthor(options.author);
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
   const note = findNoteBySlug(vaultRoot, config, slug);
@@ -103,6 +106,7 @@ export function editCommand(slug: string, options: EditOptions): void {
     }
 
     frontmatter.modified = new Date().toISOString();
+    recordModification(frontmatter, options.author);
     fs.writeFileSync(existingNote.filepath, serializeFrontmatter(frontmatter, body), 'utf-8');
 
     const updatedNote = readNote(existingNote.filepath);
@@ -113,7 +117,9 @@ export function editCommand(slug: string, options: EditOptions): void {
     printRecommendations(vaultRoot, config, existingNote.filepath, 'incremental');
   } else {
     // Interactive edit (human mode) — open in $EDITOR
-    const editor = process.env.EDITOR || 'vi';
+    const editor = config.defaults.editor === '$EDITOR'
+      ? process.env.EDITOR || 'vi'
+      : config.defaults.editor;
     const statBefore = fs.statSync(existingNote.filepath).mtimeMs;
 
     try {
@@ -127,7 +133,10 @@ export function editCommand(slug: string, options: EditOptions): void {
     const statAfter = fs.statSync(existingNote.filepath).mtimeMs;
     if (statAfter !== statBefore) {
       const { frontmatter, body } = parseFrontmatter(fs.readFileSync(existingNote.filepath, 'utf-8'));
+      frontmatter.creator = existingNote.frontmatter.creator;
+      frontmatter.author_history = existingNote.frontmatter.author_history;
       frontmatter.modified = new Date().toISOString();
+      recordModification(frontmatter, options.author);
       fs.writeFileSync(existingNote.filepath, serializeFrontmatter(frontmatter, body), 'utf-8');
       syncVaultIndexAfterNoteWrite(vaultRoot, config, readNote(existingNote.filepath), { rebuild: true });
 

@@ -38,7 +38,7 @@ describe('index-db incremental flows', () => {
   });
 
   it('syncs a single note incrementally and resolves alias links', () => {
-    createNote(tmpDir, config, 'note', 'Target Note', 'Target.\n');
+    createNote(tmpDir, config, 'note', 'Target Note', 'Target.\n', { author: 'stan' });
 
     const targetPath = path.join(tmpDir, config.note_types.note.folder, 'target-note.md');
     const targetContent = fs.readFileSync(targetPath, 'utf-8');
@@ -48,7 +48,7 @@ describe('index-db incremental flows', () => {
       'utf-8',
     );
 
-    const draft = createNote(tmpDir, config, 'note', 'Draft', 'Start.\n');
+    const draft = createNote(tmpDir, config, 'note', 'Draft', 'Start.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -73,8 +73,8 @@ describe('index-db incremental flows', () => {
   });
 
   it('rebuilds the whole index when note counts drift from disk', () => {
-    const keep = createNote(tmpDir, config, 'note', 'Keep', 'Still here.\n');
-    const remove = createNote(tmpDir, config, 'note', 'Remove', 'Will be deleted.\n');
+    const keep = createNote(tmpDir, config, 'note', 'Keep', 'Still here.\n', { author: 'stan' });
+    const remove = createNote(tmpDir, config, 'note', 'Remove', 'Will be deleted.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -93,7 +93,7 @@ describe('index-db incremental flows', () => {
   });
 
   it('rebuilds backlinks when a newly created note resolves older broken links', () => {
-    createNote(tmpDir, config, 'note', 'Existing Source', 'Points to [[Future Note]].\n');
+    createNote(tmpDir, config, 'note', 'Existing Source', 'Points to [[Future Note]].\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -102,7 +102,7 @@ describe('index-db incremental flows', () => {
     expect(unresolved.target_slug).toBeNull();
     db.close();
 
-    const future = createNote(tmpDir, config, 'note', 'Future Note', 'Arrived later.\n');
+    const future = createNote(tmpDir, config, 'note', 'Future Note', 'Arrived later.\n', { author: 'stan' });
     syncVaultIndexAfterNoteWrite(tmpDir, config, future);
 
     const reopened = openDatabase(tmpDir);
@@ -112,7 +112,7 @@ describe('index-db incremental flows', () => {
   });
 
   it('keeps malformed alias JSON from crashing link resolution', () => {
-    createNote(tmpDir, config, 'note', 'Target Note', 'Target.\n');
+    createNote(tmpDir, config, 'note', 'Target Note', 'Target.\n', { author: 'stan' });
 
     const targetPath = path.join(tmpDir, config.note_types.note.folder, 'target-note.md');
     const targetContent = fs.readFileSync(targetPath, 'utf-8');
@@ -128,7 +128,7 @@ describe('index-db incremental flows', () => {
     rebuildIndex(tmpDir, config, db);
     db.prepare('UPDATE notes SET aliases = ? WHERE slug = ?').run('not-json', 'target-note');
 
-    const note = createNote(tmpDir, config, 'note', 'Draft', 'Link to [[Target Note]].\n');
+    const note = createNote(tmpDir, config, 'note', 'Draft', 'Link to [[Target Note]].\n', { author: 'stan' });
     syncNoteInIndex(tmpDir, config, db, readNote(note.filepath));
 
     const link = db.prepare('SELECT target_slug FROM links WHERE source_slug = ?').get('draft') as { target_slug: string };
@@ -144,7 +144,7 @@ describe('index-db incremental flows', () => {
     rebuildIndex(tmpDir, config, db);
     db.close();
 
-    const note = createNote(tmpDir, config, 'note', 'Readonly Index Note', 'Durable markdown write.\n');
+    const note = createNote(tmpDir, config, 'note', 'Readonly Index Note', 'Durable markdown write.\n', { author: 'stan' });
     const readonlyPaths = [dbPath, `${dbPath}-shm`, `${dbPath}-wal`].filter(fs.existsSync);
 
     try {

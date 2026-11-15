@@ -13,7 +13,7 @@ export interface NoteValidationResult {
 }
 
 const RESERVED_FRONTMATTER_KEYS = new Set([
-  'id', 'title', 'type', 'created', 'modified',
+  'id', 'title', 'type', 'created', 'modified', 'creator', 'last_modifier', 'author_history',
   'tags', 'aliases', 'status', 'source',
   'review_state', 'durability', 'derived_from',
 ]);

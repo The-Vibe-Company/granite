@@ -52,22 +52,22 @@ granite recommend <slug> --json
 ### Create
 
 ```bash
-granite new "Title" --type note --source agent --json
-granite new "Title" --type source --source agent --durability canonical --json
-granite new "Title" --type synthesis --source agent --derived-from slug-a,slug-b --json
-granite new "Title" --type output --source agent --durability ephemeral --derived-from slug-a --json
-granite add "Quick thought" --source agent --json
+granite new "Title" --type note --source agent --json --author stan
+granite new "Title" --type source --source agent --durability canonical --json --author stan
+granite new "Title" --type synthesis --source agent --derived-from slug-a,slug-b --json --author stan
+granite new "Title" --type output --source agent --durability ephemeral --derived-from slug-a --json --author stan
+granite add "Quick thought" --source agent --json --author stan
 ```
 
 ### Update
 
 ```bash
-granite edit <slug> --append $'New content'
-granite edit <slug> --body $'Full replacement'
-granite edit <slug> --tag "tag1,tag2"
-granite edit <slug> --status archived
-granite edit <slug> --review-state reviewed
-granite edit <slug> --derived-from note-a,note-b
+granite edit <slug> --append $'New content' --author stan
+granite edit <slug> --body $'Full replacement' --author stan
+granite edit <slug> --tag "tag1,tag2" --author stan
+granite edit <slug> --status archived --author stan
+granite edit <slug> --review-state reviewed --author stan
+granite edit <slug> --derived-from note-a,note-b --author stan
 ```
 
 ### Inspect
@@ -94,3 +94,5 @@ Synthesize from retrieved notes. Never invent provenance not in the vault.
 - `output` without `derived_from`
 - Replacing wikilinks with tags
 - Overwriting a human note when a derived note would be safer
+
+Authorship: replace `stan` in write examples with your own bot short slug (e.g. `granite` or `dave`); use `stan` only for Stan.

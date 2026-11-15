@@ -53,7 +53,7 @@ describe('granite MCP server — strict type validation end-to-end', () => {
   it('rejects granite_capture_knowledge for a strict type when required fields are missing', async () => {
     const result = await client.callTool({
       name: 'granite_capture_knowledge',
-      arguments: {
+      arguments: { author: 'stan',
         title: 'Monka sync',
         type: 'meeting',
         body: '## Summary\n## Decisions\n## Action items\n',
@@ -67,7 +67,7 @@ describe('granite MCP server — strict type validation end-to-end', () => {
   it('accepts granite_capture_knowledge for a strict type when fields are supplied', async () => {
     const result = await client.callTool({
       name: 'granite_capture_knowledge',
-      arguments: {
+      arguments: { author: 'stan',
         title: 'Monka sync',
         type: 'meeting',
         body: '## Summary\n## Decisions\n## Action items\n',
@@ -95,4 +95,24 @@ describe('granite MCP server — strict type validation end-to-end', () => {
     const schemaProps = (revise?.inputSchema as any)?.properties ?? {};
     expect(schemaProps.fields).toBeDefined();
   });
+  it.each([undefined, '', 'bad: yaml', 'unknown'])('explains author errors through MCP for %j', async author => {
+    const result = await client.callTool({ name: 'granite_capture_knowledge', arguments: { title: 'Rejected', author } });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ text?: string }>).map(c => c.text ?? '').join(' ');
+    expect(text).toMatch(/Pass author/);
+    expect(text).toMatch(/stan, dave, granite/);
+    expect(runtime.listNotes()).toEqual([]);
+  });
+
+  it('requires documented author input on every note-writing MCP tool', async () => {
+    const { tools } = await client.listTools();
+    for (const name of ['granite_capture_knowledge', 'granite_revise_note', 'granite_dispose_note', 'granite_import_document']) {
+      const tool = tools.find(tool => tool.name === name);
+      expect(tool).toBeDefined();
+      expect(tool!.inputSchema.required).toContain('author');
+      const author = (tool!.inputSchema.properties as Record<string, { description?: string }>).author;
+      expect(author.description).toMatch(/stan/);
+    }
+  });
+
 });

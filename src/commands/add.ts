@@ -1,3 +1,4 @@
+import { validateAuthor } from '../core/author.js';
 import fs from 'node:fs';
 import { loadConfig } from '../core/config.js';
 import { requireVaultRoot } from '../core/vault.js';
@@ -8,7 +9,8 @@ import { recommendNote, formatRecommendations } from '../core/recommendations.js
 import { ensureIndex } from '../core/index-db.js';
 import { proposeLinksAtCapture } from '../mcp/link-capture.js';
 
-export async function addNote(text?: string, options: { json?: boolean } = {}): Promise<void> {
+export async function addNote(text?: string, options: { json?: boolean; author?: string } = {}): Promise<void> {
+  validateAuthor(options.author);
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
   const typeName = config.defaults.note_type;
@@ -34,7 +36,7 @@ export async function addNote(text?: string, options: { json?: boolean } = {}): 
   const firstLine = content.split('\n')[0];
   const title = firstLine.length > 60 ? firstLine.slice(0, 60).trim() + '...' : firstLine;
 
-  const note = createNote(vaultRoot, config, typeName, title, content + '\n');
+  const note = createNote(vaultRoot, config, typeName, title, content + '\n', { author: options.author });
   syncVaultIndexAfterNoteWrite(vaultRoot, config, note, { rebuild: true });
   const recommendations = recommendNote(vaultRoot, config, note, { strategy: 'incremental' });
 

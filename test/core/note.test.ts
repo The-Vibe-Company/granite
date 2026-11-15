@@ -25,7 +25,7 @@ describe('note', () => {
   });
 
   it('creates a note with correct frontmatter', () => {
-    const note = createNote(tmpDir, config, 'note', 'My Test Note');
+    const note = createNote(tmpDir, config, 'note', 'My Test Note', undefined, { author: 'stan' });
     expect(note.slug).toBe('my-test-note');
     expect(note.frontmatter.title).toBe('My Test Note');
     expect(note.frontmatter.type).toBe('note');
@@ -37,7 +37,7 @@ describe('note', () => {
   });
 
   it('creates a default note with title-based slug', () => {
-    const note = createNote(tmpDir, config, 'note', 'Quick thought');
+    const note = createNote(tmpDir, config, 'note', 'Quick thought', undefined, { author: 'stan' });
     expect(note.slug).toBe('quick-thought');
     expect(note.frontmatter.title).toBe('Quick thought');
     expect(note.frontmatter.type).toBe('note');
@@ -45,7 +45,7 @@ describe('note', () => {
   });
 
   it('creates a note with custom body', () => {
-    const note = createNote(tmpDir, config, 'note', 'Quick', 'Custom body text\n');
+    const note = createNote(tmpDir, config, 'note', 'Quick', 'Custom body text\n', { author: 'stan' });
     expect(note.body).toBe('Custom body text\n');
   });
 
@@ -58,7 +58,7 @@ describe('note', () => {
       derived_from: 'bad-derived' as any,
     };
 
-    const note = createNote(tmpDir, config, 'note', 'Normalized Defaults');
+    const note = createNote(tmpDir, config, 'note', 'Normalized Defaults', undefined, { author: 'stan' });
     expect(note.frontmatter.status).toBe('active');
     expect(note.frontmatter.source).toBe('human');
     expect(note.frontmatter.review_state).toBe('draft');
@@ -67,18 +67,18 @@ describe('note', () => {
   });
 
   it('handles slug collision', () => {
-    const note1 = createNote(tmpDir, config, 'note', 'Duplicate');
-    const note2 = createNote(tmpDir, config, 'note', 'Duplicate');
+    const note1 = createNote(tmpDir, config, 'note', 'Duplicate', undefined, { author: 'stan' });
+    const note2 = createNote(tmpDir, config, 'note', 'Duplicate', undefined, { author: 'stan' });
     expect(note1.slug).toBe('duplicate');
     expect(note2.slug).toBe('duplicate-2');
   });
 
   it('throws for unknown note type', () => {
-    expect(() => createNote(tmpDir, config, 'unknown', 'Test')).toThrow('Unknown note type');
+    expect(() => createNote(tmpDir, config, 'unknown', 'Test', undefined, { author: 'stan' })).toThrow('Unknown note type');
   });
 
   it('reads a note back correctly', () => {
-    const created = createNote(tmpDir, config, 'note', 'Readable');
+    const created = createNote(tmpDir, config, 'note', 'Readable', undefined, { author: 'stan' });
     const read = readNote(created.filepath);
     expect(read.slug).toBe('readable');
     expect(read.frontmatter.title).toBe('Readable');
@@ -86,15 +86,15 @@ describe('note', () => {
   });
 
   it('lists all notes across types', () => {
-    createNote(tmpDir, config, 'note', 'Note A');
-    createNote(tmpDir, config, 'note', 'Note B');
-    createNote(tmpDir, config, 'source', 'Note C');
+    createNote(tmpDir, config, 'note', 'Note A', undefined, { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Note B', undefined, { author: 'stan' });
+    createNote(tmpDir, config, 'source', 'Note C', undefined, { author: 'stan' });
     const notes = listNotes(tmpDir, config);
     expect(notes).toHaveLength(3);
   });
 
   it('finds a note by slug', () => {
-    createNote(tmpDir, config, 'note', 'Findable Note');
+    createNote(tmpDir, config, 'note', 'Findable Note', undefined, { author: 'stan' });
     const found = findNoteBySlug(tmpDir, config, 'findable-note');
     expect(found).not.toBeNull();
     expect(found!.frontmatter.title).toBe('Findable Note');

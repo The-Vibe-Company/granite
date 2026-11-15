@@ -46,7 +46,7 @@ describe('fact writer', () => {
     fs.writeFileSync(path.join(tmpDir, 'granite.yml'), yaml.dump(cfg));
     fs.mkdirSync(path.join(tmpDir, 'notes'), { recursive: true });
     config = loadConfig(tmpDir);
-    createNote(tmpDir, config, 'note', 'Source Note', 'Monka migre sur Scaleway en juin 2026.\n');
+    createNote(tmpDir, config, 'note', 'Source Note', 'Monka migre sur Scaleway en juin 2026.\n', { author: 'stan' });
   });
 
   afterEach(() => {
@@ -54,37 +54,37 @@ describe('fact writer', () => {
   });
 
   it('refuses a proposal with no source', () => {
-    const result = writeFacts(tmpDir, config, [proposal({ source: '' })], { apply: true });
+    const result = writeFacts(tmpDir, config, [proposal({ source: '' })], { author: 'stan', apply: true });
     expect(result.written).toEqual([]);
     expect(result.rejected[0].reason).toContain('no source');
   });
 
   it('refuses a proposal with no verbatim span', () => {
-    const result = writeFacts(tmpDir, config, [proposal({ span: '' })], { apply: true });
+    const result = writeFacts(tmpDir, config, [proposal({ span: '' })], { author: 'stan', apply: true });
     expect(result.rejected[0].reason).toContain('not traceable');
   });
 
   it('refuses an object that does not appear in the span', () => {
     // This is the anti-laundering rule: a real-looking quote cannot carry a value
     // that is not in it.
-    const result = writeFacts(tmpDir, config, [proposal({ object: 'OVH' })], { apply: true });
+    const result = writeFacts(tmpDir, config, [proposal({ object: 'OVH' })], { author: 'stan', apply: true });
     expect(result.written).toEqual([]);
     expect(result.rejected[0].reason).toContain('does not appear in the span');
   });
 
   it('refuses a non-ISO valid_from', () => {
-    const result = writeFacts(tmpDir, config, [proposal({ valid_from: 'juin 2026' })], { apply: true });
+    const result = writeFacts(tmpDir, config, [proposal({ valid_from: 'juin 2026' })], { author: 'stan', apply: true });
     expect(result.rejected[0].reason).toContain('not an ISO date');
   });
 
   it('plans without writing when apply is false', () => {
-    const result = writeFacts(tmpDir, config, [proposal()], { apply: false });
+    const result = writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: false });
     expect(result.written).toHaveLength(1);
     expect(fs.readdirSync(path.join(tmpDir, 'notes'))).toHaveLength(1); // only the source note
   });
 
   it('writes a fact note the ledger can read', () => {
-    const result = writeFacts(tmpDir, config, [proposal()], { apply: true });
+    const result = writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: true });
     expect(result.written).toHaveLength(1);
 
     const notes = listNotes(tmpDir, config);
@@ -103,8 +103,8 @@ describe('fact writer', () => {
   });
 
   it('is idempotent: the same proposal twice writes one note', () => {
-    const first = writeFacts(tmpDir, config, [proposal()], { apply: true });
-    const second = writeFacts(tmpDir, config, [proposal()], { apply: true });
+    const first = writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: true });
+    const second = writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: true });
     expect(first.written).toHaveLength(1);
     expect(second.written).toHaveLength(0);
     expect(second.existing).toEqual(first.written);
@@ -116,13 +116,13 @@ describe('fact writer', () => {
       tmpDir,
       config,
       [proposal(), proposal({ source: 'other-source' })],
-      { apply: true },
+      { author: 'stan', apply: true },
     );
     expect(new Set(result.written).size).toBe(2);
   });
 
   it('carries provenance into the note so the claim stays auditable', () => {
-    const result = writeFacts(tmpDir, config, [proposal()], { apply: true });
+    const result = writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: true });
     const file = path.join(tmpDir, 'notes', `${result.written[0]}.md`);
     const content = fs.readFileSync(file, 'utf-8');
     expect(content).toContain('source_note:');
@@ -132,7 +132,7 @@ describe('fact writer', () => {
   });
 
   it('appends an audit line when it applies', () => {
-    writeFacts(tmpDir, config, [proposal()], { apply: true });
+    writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: true });
     const log = fs.readFileSync(auditLogPath(tmpDir), 'utf-8').trim().split('\n');
     expect(log).toHaveLength(1);
     const event = JSON.parse(log[0]);
@@ -141,16 +141,16 @@ describe('fact writer', () => {
   });
 
   it('does not audit a dry run', () => {
-    writeFacts(tmpDir, config, [proposal()], { apply: false });
+    writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: false });
     expect(fs.existsSync(auditLogPath(tmpDir))).toBe(false);
   });
 
   it('never retires an existing fact', () => {
     // A newer fact wins under the ledger rule; the older note is untouched, which is
     // what keeps the write path additive and reversible.
-    writeFacts(tmpDir, config, [proposal()], { apply: true, now: new Date('2026-06-02T00:00:00Z') });
+    writeFacts(tmpDir, config, [proposal()], { author: 'stan', apply: true, now: new Date('2026-06-02T00:00:00Z') });
     const newer = proposal({ object: 'OVH', span: 'Monka tourne desormais sur OVH.', valid_from: '2026-08-01' });
-    const result = writeFacts(tmpDir, config, [newer], { apply: true, now: new Date('2026-08-02T00:00:00Z') });
+    const result = writeFacts(tmpDir, config, [newer], { author: 'stan', apply: true, now: new Date('2026-08-02T00:00:00Z') });
 
     expect(result.written).toHaveLength(1);
     const facts = factsFromNotes(listNotes(tmpDir, config));
@@ -177,7 +177,7 @@ describe('fact writer', () => {
       proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.', relation: 'question_count' }),
       proposal({ object: '126 questions', span: '126 questions socle communes.', relation: 'question_count' }),
     ];
-    const result = writeFacts(tmpDir, config, proposals, { apply: true });
+    const result = writeFacts(tmpDir, config, proposals, { author: 'stan', apply: true });
 
     expect(result.written).toEqual([]);
     expect(result.collisions).toHaveLength(1);
@@ -198,7 +198,7 @@ describe('fact writer', () => {
         proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.', relation: 'question_count__questionnaire_initial' }),
         proposal({ object: '126 questions', span: '126 questions socle communes.', relation: 'question_count__questions_socle' }),
       ],
-      { apply: true },
+      { author: 'stan', apply: true },
     );
     expect(result.written).toHaveLength(2);
     expect(result.collisions).toEqual([]);
@@ -212,7 +212,7 @@ describe('fact writer', () => {
         proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.' , relation: 'question_count' }),
         proposal({ object: '150 Q', span: 'Questionnaire initial — 150 Q.' , relation: 'question_count' }),
       ],
-      { apply: true },
+      { author: 'stan', apply: true },
     );
     expect(result.collisions).toEqual([]);
   });

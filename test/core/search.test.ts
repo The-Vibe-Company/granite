@@ -35,8 +35,8 @@ describe('searchNotes', () => {
   });
 
   it('OR-joins multiple words and returns matches', () => {
-    createNote(tmpDir, config, 'meeting', 'Distillation primer', 'about distillation and fermentation.\n');
-    createNote(tmpDir, config, 'note', 'Other', 'unrelated content.\n');
+    createNote(tmpDir, config, 'meeting', 'Distillation primer', 'about distillation and fermentation.\n', { author: 'stan' });
+    createNote(tmpDir, config, 'note', 'Other', 'unrelated content.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -50,7 +50,7 @@ describe('searchNotes', () => {
   });
 
   it('passes through FTS5 operators unchanged', () => {
-    createNote(tmpDir, config, 'note', 'Alpha', 'alpha beta gamma.\n');
+    createNote(tmpDir, config, 'note', 'Alpha', 'alpha beta gamma.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
@@ -61,7 +61,7 @@ describe('searchNotes', () => {
   });
 
   it('returns a single-token query as-is', () => {
-    createNote(tmpDir, config, 'note', 'Solo', 'solo content.\n');
+    createNote(tmpDir, config, 'note', 'Solo', 'solo content.\n', { author: 'stan' });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
     const results = searchNotes(db, 'solo');
@@ -70,7 +70,7 @@ describe('searchNotes', () => {
   });
 
   it('falls back to LIKE when FTS parsing throws', () => {
-    createNote(tmpDir, config, 'note', 'Paren', 'text with " symbols.\n');
+    createNote(tmpDir, config, 'note', 'Paren', 'text with " symbols.\n', { author: 'stan' });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);
     // Quote-only query is invalid FTS5 → triggers fallback
@@ -82,9 +82,9 @@ describe('searchNotes', () => {
 
   it('widens the ranking pool beyond the returned limit', () => {
     for (let i = 0; i < 6; i++) {
-      createNote(tmpDir, config, 'note', `Fermentation Study ${i}`, 'fermentation fermentation fermentation.\n');
+      createNote(tmpDir, config, 'note', `Fermentation Study ${i}`, 'fermentation fermentation fermentation.\n', { author: 'stan' });
     }
-    createNote(tmpDir, config, 'note', 'Weak Match', 'a single mention of fermentation here.\n');
+    createNote(tmpDir, config, 'note', 'Weak Match', 'a single mention of fermentation here.\n', { author: 'stan' });
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     rebuildIndex(tmpDir, config, db);

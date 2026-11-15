@@ -45,7 +45,7 @@ describe('capture-time link proposals', () => {
 
   it('returns no proposal promise when there is nothing to judge', () => {
     // Nothing in the vault mentions anything, so there are no candidates.
-    const result = runtime.createNote({ title: 'Lonely', type: 'note', body: 'Nothing to link here at all.\n' });
+    const result = runtime.createNote({ author: 'stan', title: 'Lonely', type: 'note', body: 'Nothing to link here at all.\n' });
     expect(result.note.slug).toBe('lonely');
     return result.proposed_links?.then(proposed => {
       expect(proposed).toBeUndefined();
@@ -61,8 +61,8 @@ describe('capture-time link proposals', () => {
     );
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      runtime.createNote({ title: 'Acme', type: 'organization', body: 'Acme is an organization.\n' });
-      const result = runtime.createNote({
+      runtime.createNote({ author: 'stan', title: 'Acme', type: 'organization', body: 'Acme is an organization.\n' });
+      const result = runtime.createNote({ author: 'stan',
         title: 'Meeting about Acme',
         type: 'note',
         // A verbatim mention of an existing title is what makes a candidate. Without one this
@@ -95,8 +95,8 @@ describe('capture-time link proposals', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     ));
     try {
-      runtime.createNote({ title: 'Acme', type: 'organization', body: 'Acme is an organization.\n' });
-      const result = runtime.createNote({
+      runtime.createNote({ author: 'stan', title: 'Acme', type: 'organization', body: 'Acme is an organization.\n' });
+      const result = runtime.createNote({ author: 'stan',
         title: 'Meeting about Acme',
         type: 'note',
         body: 'We met Acme today about the hosting work.\n',

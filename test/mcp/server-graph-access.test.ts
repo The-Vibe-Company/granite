@@ -45,12 +45,12 @@ describe('MCP graph access tools', () => {
       fs.mkdirSync(path.join(tmpDir, typeConfig.folder), { recursive: true });
     }
 
-    createNote(tmpDir, config, 'organization', 'Monka.care', 'Monka.care operates in France.\n');
+    createNote(tmpDir, config, 'organization', 'Monka.care', 'Monka.care operates in France.\n', { author: 'stan' });
     // `createNote` writes the body as an argument, so the wikilinks that make the graph are
     // appended here. A note the vault does not link is not an entity reference, which is the
     // whole input these tools read.
     const link = (type: string, title: string, body: string) => {
-      const note = createNote(tmpDir, config, type, title, `${body}\n`);
+      const note = createNote(tmpDir, config, type, title, `${body}\n`, { author: 'stan' });
       fs.appendFileSync(note.filepath, `See [[monka-care]].\n`);
       return note;
     };

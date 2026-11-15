@@ -77,7 +77,7 @@ describe('typed hooks', () => {
 
   it('resolve_wikilinks auto_stub creates the target organization stub', () => {
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
-    createNote(tmpDir, config, 'person', 'Alice Smith', '## Context\n', {
+    createNote(tmpDir, config, 'person', 'Alice Smith', '## Context\n', { author: 'stan',
       db,
       extraFrontmatter: { organization: 'Acme Corp' },
     });
@@ -94,7 +94,7 @@ describe('typed hooks', () => {
   });
 
   it('set_default fills in ${today} for missing fields', () => {
-    createNote(tmpDir, config, 'meeting', 'Standup', '## Summary\n');
+    createNote(tmpDir, config, 'meeting', 'Standup', '## Summary\n', { author: 'stan' });
     const note = findNoteBySlug(tmpDir, config, 'standup');
     const today = new Date().toISOString().slice(0, 10);
     expect(note?.frontmatter.date).toBe(today);
@@ -103,10 +103,10 @@ describe('typed hooks', () => {
   it('auto_stub allocates a unique slug when the target slug is taken by another type', () => {
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
     // A plain note whose slug would collide with the organization stub
-    createNote(tmpDir, config, 'note', 'Acme', '## Acme is a word, not the company.\n');
+    createNote(tmpDir, config, 'note', 'Acme', '## Acme is a word, not the company.\n', { author: 'stan' });
     rebuildIndex(tmpDir, config, db);
 
-    createNote(tmpDir, config, 'person', 'Bob', '## Context\n', {
+    createNote(tmpDir, config, 'person', 'Bob', '## Context\n', { author: 'stan',
       db,
       extraFrontmatter: { organization: 'Acme' },
     });
@@ -127,13 +127,13 @@ describe('typed hooks', () => {
 
   it('resolve_wikilinks returns the existing slug when the target already exists', () => {
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
-    createNote(tmpDir, config, 'organization', 'Acme', '## Identity\n', {
+    createNote(tmpDir, config, 'organization', 'Acme', '## Identity\n', { author: 'stan',
       db,
       extraFrontmatter: { kind: 'client' },
     });
     rebuildIndex(tmpDir, config, db);
 
-    createNote(tmpDir, config, 'person', 'Carol', '## Context\n', {
+    createNote(tmpDir, config, 'person', 'Carol', '## Context\n', { author: 'stan',
       db,
       extraFrontmatter: { organization: 'Acme' },
     });
@@ -158,7 +158,7 @@ describe('typed hooks', () => {
     fs.writeFileSync(cfgPath, yaml.dump(raw));
     const config2 = loadConfig(tmpDir);
 
-    createNote(tmpDir, config2, 'note', 'Arr', 'body\n', {
+    createNote(tmpDir, config2, 'note', 'Arr', 'body\n', { author: 'stan',
       extraFrontmatter: { tags_list: ['a', '', 'b'] },
     });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
@@ -187,7 +187,7 @@ describe('typed hooks', () => {
     const cfg2 = loadConfig(tmpDir);
 
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));
-    createNote(tmpDir, cfg2, 'person', 'Dana', '## Context\n', {
+    createNote(tmpDir, cfg2, 'person', 'Dana', '## Context\n', { author: 'stan',
       db,
       extraFrontmatter: { organization: 'Acme Corp', backup_organization: 'Acme Corp' },
     });
@@ -203,7 +203,7 @@ describe('typed hooks', () => {
   });
 
   it('createNote ignores attempts to overwrite reserved immutable fields via extraFrontmatter', () => {
-    createNote(tmpDir, config, 'note', 'Guarded', 'body\n', {
+    createNote(tmpDir, config, 'note', 'Guarded', 'body\n', { author: 'stan',
       extraFrontmatter: { id: 'forged', type: 'organization', created: 'never' },
     });
     const note = findNoteBySlug(tmpDir, config, 'guarded');
@@ -213,7 +213,7 @@ describe('typed hooks', () => {
   });
 
   it('indexed_fields are populated into note_fields table on rebuild', () => {
-    createNote(tmpDir, config, 'organization', 'Acme', '## Identity\n', {
+    createNote(tmpDir, config, 'organization', 'Acme', '## Identity\n', { author: 'stan',
       extraFrontmatter: { kind: 'client' },
     });
     const db = createDatabase(path.join(tmpDir, '.granite', 'index.db'));

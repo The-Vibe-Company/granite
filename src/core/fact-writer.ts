@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { validateAuthor, creationAttribution } from './author.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { GraniteConfig, NoteFrontmatter } from './types.js';
@@ -158,6 +159,7 @@ export function appendAuditEvent(vaultRoot: string, event: Record<string, unknow
 }
 
 export interface WriteFactsOptions {
+  author?: string;
   /** false plans the writes and creates nothing. */
   apply?: boolean;
   /** Current time, injectable so tests are deterministic. */
@@ -178,6 +180,7 @@ export function writeFacts(
   options: WriteFactsOptions = {},
 ): FactWriteResult {
   const apply = options.apply ?? false;
+  if (apply) validateAuthor(options.author);
   const now = options.now ?? new Date();
   const iso = now.toISOString();
   const folder = path.join(vaultRoot, config.note_types.note.folder);
@@ -257,6 +260,7 @@ export function writeFacts(
       aliases: [],
       status: 'active',
       source: 'agent',
+      ...creationAttribution(options.author, iso),
       review_state: 'draft',
       durability: 'canonical',
       derived_from: [proposal.source],

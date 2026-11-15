@@ -36,14 +36,14 @@ granite search "<key terms>" --json
 ```
 
 If an existing note covers the same ground:
-- **Append** new information with `granite edit <slug> --append`
+- **Append** new information with `granite edit <slug> --append --author stan`
 - **Don't** create a duplicate
 
 ### 3. Create
 
 ```bash
-granite new "Title" --type <type> --source agent --review-state draft --json
-granite edit <slug> --body $'<structured body>'
+granite new "Title" --type <type> --source agent --review-state draft --json --author stan
+granite edit <slug> --body $'<structured body>' --author stan
 ```
 
 Always use `--source agent`. Always `--review-state draft` (the human reviews later).
@@ -138,3 +138,5 @@ Sources: [[slug-a]], [[slug-b]], [[slug-c]]
 - **Wikilinks over tags** — if it's a relationship, use `[[wikilink]]`. Tags are for cross-cutting categories only.
 - **Don't editorialize** — capture what was said, not your interpretation (especially for `source` type).
 - **Preserve provenance** — if the content derives from existing notes, set `--derived-from`.
+
+Authorship: replace `stan` in write examples with your own bot short slug (e.g. `granite` or `dave`); use `stan` only for Stan.

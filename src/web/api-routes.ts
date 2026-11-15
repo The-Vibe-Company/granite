@@ -44,7 +44,14 @@ export function registerReadOnlyApiRoutes(
     query += ' ORDER BY modified DESC';
     const notes = db.prepare(query).all(...params);
     db.close();
-    return c.json({ notes });
+    const bySlug = new Map(listNotes(vaultRoot, config).map(note => [note.slug, note.frontmatter]));
+    const enriched = (notes as Array<Record<string, unknown>>).map(note => ({
+      ...note,
+      creator: bySlug.get(String(note.slug))?.creator ?? 'unknown',
+      last_modifier: bySlug.get(String(note.slug))?.last_modifier ?? 'unknown',
+    })).filter(note => (!c.req.query('creator') || note.creator === c.req.query('creator'))
+      && (!c.req.query('last_modifier') || note.last_modifier === c.req.query('last_modifier')));
+    return c.json({ notes: enriched });
   });
 
   app.get(`${prefix}/api/notes/:slug`, (c) => {
@@ -74,6 +81,8 @@ export function registerReadOnlyApiRoutes(
       aliases: note.frontmatter.aliases,
       status: note.frontmatter.status,
       source: note.frontmatter.source,
+      creator: note.frontmatter.creator,
+      last_modifier: note.frontmatter.last_modifier,
       review_state: note.frontmatter.review_state,
       durability: note.frontmatter.durability,
       derived_from: note.frontmatter.derived_from,

@@ -1,3 +1,4 @@
+import { validateAuthor } from '../core/author.js';
 import fs from 'node:fs';
 import { loadConfig } from '../core/config.js';
 import { requireVaultRoot } from '../core/vault.js';
@@ -16,6 +17,7 @@ import { recommendNote, formatRecommendations } from '../core/recommendations.js
 export function newNote(
   title: string,
   options: {
+    author?: string;
     type?: string;
     source?: string;
     status?: string;
@@ -25,6 +27,7 @@ export function newNote(
     json?: boolean;
   },
 ): void {
+  validateAuthor(options.author);
   const vaultRoot = requireVaultRoot();
   const config = loadConfig(vaultRoot);
   const resolvedType = options.type || config.defaults.note_type;
@@ -32,7 +35,7 @@ export function newNote(
 
   // For date-slug types, the title doubles as the initial body content.
   const bodyOverride = typeConfig?.slug_format === 'date' ? title + '\n' : undefined;
-  const note = createNote(vaultRoot, config, resolvedType, title, bodyOverride);
+  const note = createNote(vaultRoot, config, resolvedType, title, bodyOverride, { author: options.author });
 
   // Apply frontmatter overrides
   if (

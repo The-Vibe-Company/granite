@@ -35,10 +35,10 @@ describe('personal hosted dashboard', () => {
     writeDefaultConfig(vault);
     const config = loadConfig(vault);
     for (const type of Object.values(config.note_types)) fs.mkdirSync(path.join(vault, type.folder), { recursive: true });
-    const first = createNote(vault, config, 'note', 'First note', 'A searchable constellation. [[Second note]]');
+    const first = createNote(vault, config, 'note', 'First note', 'A searchable constellation. [[Second note]]', { author: 'stan' });
     first.frontmatter.tags = ['personal', 'two words'];
     fs.writeFileSync(first.filepath, serializeFrontmatter(first.frontmatter, first.body));
-    createNote(vault, config, 'source', 'Second note', 'A searchable source.');
+    createNote(vault, config, 'source', 'Second note', 'A searchable source.', { author: 'stan' });
     fs.mkdirSync(path.join(vault, 'assets'));
     fs.writeFileSync(path.join(vault, 'assets', 'sample.png'), randomBytes(20));
     fs.writeFileSync(path.join(vault, 'assets', 'active.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');

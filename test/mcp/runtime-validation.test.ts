@@ -57,7 +57,7 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
 
   it('listNoteTypes resolves example_slug to the most recent note of each type', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    runtime.createNote({ title: 'One', type: 'note', body: 'x\n' });
+    runtime.createNote({ author: 'stan', title: 'One', type: 'note', body: 'x\n' });
     const types = runtime.listNoteTypes();
     const noteT = types.find(t => t.name === 'note');
     expect(noteT!.example_slug).toBe('one');
@@ -66,14 +66,14 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
 
   it('throws a structured error for unknown types on createNote', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    expect(() => runtime.createNote({ title: 'X', type: 'retro' as never, body: 'y\n' }))
+    expect(() => runtime.createNote({ author: 'stan', title: 'X', type: 'retro' as never, body: 'y\n' }))
       .toThrow(/Unknown note type "retro"/);
     runtime.close();
   });
 
   it('rejects creation of a strict-type note missing a required field', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    expect(() => runtime.createNote({
+    expect(() => runtime.createNote({ author: 'stan',
       title: 'Monka sync',
       type: 'meeting' as never,
       body: '## Summary\n## Decisions\n## Action items\n',
@@ -83,7 +83,7 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
 
   it('accepts creation when required fields are supplied via extra frontmatter', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const result = runtime.createNote({
+    const result = runtime.createNote({ author: 'stan',
       title: 'Monka sync',
       type: 'meeting' as never,
       body: '## Summary\n## Decisions\n## Action items\n',
@@ -96,7 +96,7 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
 
   it('captured result includes validation warnings for warn_only types', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const result = runtime.captureNote({ text: 'A line with no standard sections', type: 'note' });
+    const result = runtime.captureNote({ author: 'stan', text: 'A line with no standard sections', type: 'note' });
     // `note` is strict (warn_only=false); but there's no required field nor section check for prose captures
     expect(result.validation).toBeDefined();
     runtime.close();
@@ -104,16 +104,16 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
 
   it('rejects reviseNote that promotes a note to a strict type without required fields', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const created = runtime.createNote({ title: 'Promote me', type: 'note', body: '## Summary\n## Details\n' });
-    expect(() => runtime.reviseNote(created.note.slug, { type: 'meeting' as never }))
+    const created = runtime.createNote({ author: 'stan', title: 'Promote me', type: 'note', body: '## Summary\n## Details\n' });
+    expect(() => runtime.reviseNote(created.note.slug, { author: 'stan', type: 'meeting' as never }))
       .toThrow(/missing_required_field/);
     runtime.close();
   });
 
   it('accepts reviseNote promotion when required fields are supplied via fields', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const created = runtime.createNote({ title: 'Promote me', type: 'note', body: '## Summary\n## Details\n' });
-    const revised = runtime.reviseNote(created.note.slug, {
+    const created = runtime.createNote({ author: 'stan', title: 'Promote me', type: 'note', body: '## Summary\n## Details\n' });
+    const revised = runtime.reviseNote(created.note.slug, { author: 'stan',
       type: 'meeting' as never,
       fields: { date: '2026-04-17' },
       body: '## Summary\n## Decisions\n## Action items\n',
@@ -126,7 +126,7 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
 
   it('rejects reviseNote that pushes a strict-type body past line_limit and does not write', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const created = runtime.createNote({
+    const created = runtime.createNote({ author: 'stan',
       title: 'Sync',
       type: 'meeting' as never,
       body: '## Summary\n## Decisions\n## Action items\n',
@@ -134,7 +134,7 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
     });
     const originalBody = created.note.body;
     const hugeAppend = Array.from({ length: 400 }, (_, i) => `line ${i}`).join('\n');
-    expect(() => runtime.reviseNote(created.note.slug, { append: hugeAppend }))
+    expect(() => runtime.reviseNote(created.note.slug, { author: 'stan', append: hugeAppend }))
       .toThrow(/line_limit_exceeded/);
     // Verify the file was not mutated.
     const reread = runtime.getNote(created.note.slug);
@@ -153,7 +153,7 @@ describe('GraniteMcpRuntime validation & type registry exposure', () => {
 
   it('wakeup AAAK contains the TYPES pointer with signature and resource URI', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    runtime.createNote({ title: 'Seed', type: 'note', body: 'x\n' });
+    runtime.createNote({ author: 'stan', title: 'Seed', type: 'note', body: 'x\n' });
     const wk = runtime.wakeup();
     expect(wk.aaak).toMatch(/TYPES: \d+ \(sig=[0-9a-f]{8}\) -> granite:\/\/vault\/types/);
     runtime.close();

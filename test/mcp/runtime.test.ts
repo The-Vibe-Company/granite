@@ -29,7 +29,7 @@ describe('GraniteMcpRuntime', () => {
   });
 
   it('bootstraps a missing index with auto_rebuild disabled, then respects manual indexing on restart', () => {
-    createNote(tmpDir, config, 'note', 'Migrated Knowledge', 'Portable knowledge.\n');
+    createNote(tmpDir, config, 'note', 'Migrated Knowledge', 'Portable knowledge.\n', { author: 'stan' });
     const configPath = path.join(tmpDir, 'granite.yml');
     const manualConfig = fs.readFileSync(configPath, 'utf8').replace('auto_rebuild: true', 'auto_rebuild: false');
     fs.writeFileSync(configPath, manualConfig);
@@ -40,7 +40,7 @@ describe('GraniteMcpRuntime', () => {
       expect(fs.readFileSync(configPath, 'utf8')).toBe(manualConfig);
     } finally { runtime.close(); }
 
-    createNote(tmpDir, config, 'note', 'Later External Note', 'Unindexed addition.\n');
+    createNote(tmpDir, config, 'note', 'Later External Note', 'Unindexed addition.\n', { author: 'stan' });
     runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
     try {
       expect(runtime.search('portable')).toHaveLength(1);
@@ -49,8 +49,8 @@ describe('GraniteMcpRuntime', () => {
   });
 
   it('rebuilds a stale index on first refresh after a note deletion', () => {
-    createNote(tmpDir, config, 'note', 'Stable Note', 'Persistent note.\n');
-    const deleted = createNote(tmpDir, config, 'note', 'Deleted Note', 'Unique deleted content.\n');
+    createNote(tmpDir, config, 'note', 'Stable Note', 'Persistent note.\n', { author: 'stan' });
+    const deleted = createNote(tmpDir, config, 'note', 'Deleted Note', 'Unique deleted content.\n', { author: 'stan' });
 
     let runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
     expect(runtime.search('deleted')).toHaveLength(1);
@@ -65,7 +65,7 @@ describe('GraniteMcpRuntime', () => {
 
   it('preserves created and modified timestamps when no metadata mutations are requested', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const result = runtime.createNote({
+    const result = runtime.createNote({ author: 'stan',
       title: 'Fresh Note',
       type: 'note',
       body: 'No extra metadata.\n',
@@ -77,13 +77,13 @@ describe('GraniteMcpRuntime', () => {
 
   it('revises a note type and keeps it addressable by slug', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const created = runtime.createNote({
+    const created = runtime.createNote({ author: 'stan',
       title: 'Type Promotion',
       type: 'note',
       body: 'Promote me.\n',
     });
 
-    const revised = runtime.reviseNote(created.note.slug, { type: 'source' });
+    const revised = runtime.reviseNote(created.note.slug, { author: 'stan', type: 'source' });
 
     expect(revised.note.type).toBe('source');
     expect(revised.note.slug).toBe(created.note.slug);
@@ -92,7 +92,7 @@ describe('GraniteMcpRuntime', () => {
 
   it('deletes a note and removes it from search', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const created = runtime.createNote({
+    const created = runtime.createNote({ author: 'stan',
       title: 'Disposable',
       type: 'note',
       body: 'Delete me from the index.\n',
@@ -100,7 +100,7 @@ describe('GraniteMcpRuntime', () => {
 
     expect(runtime.search('delete')).toHaveLength(1);
 
-    const disposed = runtime.disposeNote(created.note.slug, 'delete');
+    const disposed = runtime.disposeNote(created.note.slug, 'delete', 'stan');
 
     expect(disposed.note).toBeNull();
     expect(runtime.search('delete')).toHaveLength(0);
@@ -112,7 +112,7 @@ describe('GraniteMcpRuntime', () => {
     const inputFile = path.join(tmpDir, 'design-brief.pdf');
     fs.writeFileSync(inputFile, '%PDF-1.4\nbrief\n');
 
-    const imported = runtime.importDocument({
+    const imported = runtime.importDocument({ author: 'stan',
       file_path: inputFile,
       content: 'Design brief for the Q2 launch.\n- Audience: founders\n- Goal: clarify positioning',
     });
@@ -149,32 +149,32 @@ describe('GraniteMcpRuntime', () => {
 
   it('plans garden opportunities globally and around an anchor note', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const anchor = runtime.createNote({
+    const anchor = runtime.createNote({ author: 'stan',
       title: 'Garden Anchor',
       type: 'note',
       body: 'Anchor note for Granite planning.\n',
       tags: ['granite-vision'],
     });
-    const updateA = runtime.createNote({
+    const updateA = runtime.createNote({ author: 'stan',
       title: 'Granite Update A',
       type: 'note',
       body: 'Fresh note that links [[Garden Anchor]].\n',
       tags: ['granite-vision'],
     });
-    const updateB = runtime.createNote({
+    const updateB = runtime.createNote({ author: 'stan',
       title: 'Granite Update B',
       type: 'note',
       body: 'Another fresh note about Granite.\n',
       tags: ['granite-vision'],
     });
-    const synthesis = runtime.createNote({
+    const synthesis = runtime.createNote({ author: 'stan',
       title: 'Garden Synthesis',
       type: 'synthesis',
       body: 'Old synthesis for [[Garden Anchor]].\n',
       tags: ['granite-vision'],
       derived_from: [anchor.note.slug],
     });
-    const source = runtime.createNote({
+    const source = runtime.createNote({ author: 'stan',
       title: 'Uncompiled Source',
       type: 'source',
       body: 'Raw source material waiting to be distilled.\n',
@@ -206,13 +206,13 @@ describe('GraniteMcpRuntime', () => {
 
   it('does not mark scoped child notes as duplicates based on title containment alone', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const hub = runtime.createNote({
+    const hub = runtime.createNote({ author: 'stan',
       title: 'Granite',
       type: 'note',
       body: 'Hub note for Granite.\n',
       tags: ['granite-vision'],
     });
-    const child = runtime.createNote({
+    const child = runtime.createNote({ author: 'stan',
       title: "Granite as Karpathy's knowledge compiler",
       type: 'note',
       body: 'A scoped elaboration of the Granite idea.\n',
@@ -231,22 +231,22 @@ describe('GraniteMcpRuntime', () => {
 
   it('does not propose a synthesis for the synthetic misc cluster', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Warehouse Lease',
       type: 'note',
       body: 'Lease terms for the warehouse.\n',
     });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Founder Coffee Notes',
       type: 'note',
       body: 'Notes from coffee with a founder.\n',
     });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Launch Checklist',
       type: 'note',
       body: 'Checklist for the product launch.\n',
     });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Tax Reminder',
       type: 'note',
       body: 'Remember the quarterly tax filing.\n',
@@ -260,31 +260,31 @@ describe('GraniteMcpRuntime', () => {
 
   it('keeps anchor-scoped garden plans from pulling in foreign cluster work', () => {
     const runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const anchor = runtime.createNote({
+    const anchor = runtime.createNote({ author: 'stan',
       title: 'Anchor Note',
       type: 'note',
       body: 'Track follow-up with [[Foreign Cluster A]].\n',
       tags: ['alpha'],
     });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Foreign Cluster A',
       type: 'note',
       body: 'Part of a separate beta cluster.\n',
       tags: ['beta'],
     });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Foreign Cluster B',
       type: 'note',
       body: 'Another beta cluster note.\n',
       tags: ['beta'],
     });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Foreign Cluster C',
       type: 'note',
       body: 'Another beta cluster note.\n',
       tags: ['beta'],
     });
-    runtime.createNote({
+    runtime.createNote({ author: 'stan',
       title: 'Foreign Cluster D',
       type: 'note',
       body: 'Another beta cluster note.\n',
@@ -309,19 +309,19 @@ describe('GraniteMcpRuntime', () => {
 
   it('downranks adjudicated opportunities and persists them across runtime restarts', () => {
     let runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const topic = runtime.createNote({
+    const topic = runtime.createNote({ author: 'stan',
       title: 'Garden Topic Hub',
       type: 'note',
       body: 'Anchor note for a duplicated topic.\n',
       tags: ['granite-vision'],
     });
-    const update = runtime.createNote({
+    const update = runtime.createNote({ author: 'stan',
       title: 'Garden Update',
       type: 'note',
       body: 'Fresh update linked to [[Garden Topic Hub]].\n',
       tags: ['granite-vision'],
     });
-    const synthesis = runtime.createNote({
+    const synthesis = runtime.createNote({ author: 'stan',
       title: 'Garden Topic Hub synthesis',
       type: 'synthesis',
       body: 'Old synthesis for [[Garden Topic Hub]].\n',
@@ -370,19 +370,19 @@ describe('GraniteMcpRuntime', () => {
 
   it('expires already-current and blocked adjudications when their conditions change', () => {
     let runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
-    const anchor = runtime.createNote({
+    const anchor = runtime.createNote({ author: 'stan',
       title: 'Garden Anchor',
       type: 'note',
       body: 'Anchor note for Granite planning.\n',
       tags: ['granite-vision'],
     });
-    const update = runtime.createNote({
+    const update = runtime.createNote({ author: 'stan',
       title: 'Granite Update A',
       type: 'note',
       body: 'Fresh note that links [[Garden Anchor]].\n',
       tags: ['granite-vision'],
     });
-    const synthesis = runtime.createNote({
+    const synthesis = runtime.createNote({ author: 'stan',
       title: 'Garden Synthesis',
       type: 'synthesis',
       body: 'Old synthesis for [[Garden Anchor]].\n',

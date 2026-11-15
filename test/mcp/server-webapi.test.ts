@@ -20,7 +20,7 @@ describe('MCP HTTP app with --web-api', () => {
     for (const typeConfig of Object.values(config.note_types)) {
       fs.mkdirSync(path.join(tmpDir, typeConfig.folder), { recursive: true });
     }
-    createNote(tmpDir, config, 'note', 'Cloud Note', 'Visible from the web API.\n');
+    createNote(tmpDir, config, 'note', 'Cloud Note', 'Visible from the web API.\n', { author: 'stan' });
     runtime = new GraniteMcpRuntime(tmpDir, { indexCheckIntervalMs: 0 });
   });
 

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { normalizeAuthor } from './author.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
@@ -171,8 +172,9 @@ export function collectIndexedFieldValues(
   typeConfig: NoteTypeConfig,
 ): Array<{ field: string; value: string }> {
   const out: Array<{ field: string; value: string }> = [];
-  for (const field of typeConfig.indexed_fields ?? []) {
-    const value = note.frontmatter[field];
+  for (const field of new Set(['creator', 'last_modifier', ...(typeConfig.indexed_fields ?? [])])) {
+    const value = field === 'creator' || field === 'last_modifier'
+      ? normalizeAuthor(note.frontmatter[field]) : note.frontmatter[field];
     if (value === undefined || value === null) continue;
     if (Array.isArray(value)) {
       for (const v of value) {

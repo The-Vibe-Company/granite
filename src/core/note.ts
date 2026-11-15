@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { validateAuthor, creationAttribution } from './author.js';
 import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import type Database from 'better-sqlite3';
@@ -15,6 +16,7 @@ import {
 import type { GraniteConfig, Note, NoteFrontmatter } from './types.js';
 
 export interface CreateNoteOptions {
+  author?: string;
   db?: Database.Database;
   extraFrontmatter?: Record<string, unknown>;
 }
@@ -27,6 +29,7 @@ export function createNote(
   bodyOverride?: string,
   options: CreateNoteOptions = {},
 ): Note {
+  validateAuthor(options.author);
   const typeConfig = config.note_types[typeName];
   if (!typeConfig) {
     throw new Error(`Unknown note type: "${typeName}". Available: ${Object.keys(config.note_types).join(', ')}`);
@@ -73,6 +76,7 @@ export function createNote(
     durability: normalizeDurability(defaults.durability),
     derived_from: normalizeStringArray(defaults.derived_from),
     ...sanitizedExtra,
+    ...creationAttribution(options.author, now),
   };
 
   const body = bodyOverride ?? typeConfig.template;
@@ -106,10 +110,12 @@ export function createNote(
       review_state: 'draft',
       durability: normalizeDurability(stubType.frontmatter_defaults?.durability),
       derived_from: [],
+      ...creationAttribution(options.author, stubNow),
     };
     fs.writeFileSync(stubPath, serializeFrontmatter(stubFrontmatter, stubType.template), 'utf-8');
   }
 
+  Object.assign(hookResult.frontmatter, creationAttribution(options.author, now));
   const content = serializeFrontmatter(hookResult.frontmatter, body);
 
   fs.mkdirSync(folder, { recursive: true });
@@ -124,7 +130,7 @@ export function createNote(
   };
 }
 
-const RESERVED_IMMUTABLE_FIELDS = new Set(['id', 'type', 'title', 'created', 'modified']);
+const RESERVED_IMMUTABLE_FIELDS = new Set(['id', 'type', 'title', 'created', 'modified', 'creator', 'last_modifier', 'author_history']);
 
 function stripReservedFields(extra: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
