@@ -1,0 +1,87 @@
+{
+  "base": "552b8640e5c8ba0e4f4ac470110f9a8444afac42",
+  "baseline": {
+    "node": "v24.22.1",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC 4585PX 16-Core Processor",
+    "logicalCpus": 4,
+    "totalMemoryMiB": 7941.35,
+    "count": 12000,
+    "concurrency": 4,
+    "startupMs": 263.825555,
+    "idle": {
+      "rssMiB": 133.12,
+      "heapMiB": 48.33
+    },
+    "loadPeak": {
+      "rssMiB": 526.73,
+      "heapMiB": 298.2
+    },
+    "loadMs": 25354.237997,
+    "cpuIntervalMs": 25355.117057000003,
+    "cpuMs": 38515.707,
+    "cpuPercentOneCore": 151.90506481754397,
+    "latencyMs": {
+      "initialize": {
+        "count": 4000,
+        "p50": 5.690388000000894,
+        "p95": 20.86597399999664
+      },
+      "tools/list": {
+        "count": 4000,
+        "p50": 7.402330999999322,
+        "p95": 22.52381899999955
+      },
+      "tools/call": {
+        "count": 4000,
+        "p50": 7.658484999999928,
+        "p95": 23.31347200000164
+      }
+    }
+  },
+  "after": {
+    "node": "v24.22.1",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC 4585PX 16-Core Processor",
+    "logicalCpus": 4,
+    "totalMemoryMiB": 7941.35,
+    "count": 12000,
+    "concurrency": 4,
+    "startupMs": 215.63245,
+    "idle": {
+      "rssMiB": 106.57,
+      "heapMiB": 21.95
+    },
+    "loadPeak": {
+      "rssMiB": 467.15,
+      "heapMiB": 236.82
+    },
+    "loadMs": 23568.494216000003,
+    "cpuIntervalMs": 23569.581027,
+    "cpuMs": 35059.436,
+    "cpuPercentOneCore": 148.74866023217749,
+    "latencyMs": {
+      "initialize": {
+        "count": 4000,
+        "p50": 5.984391999999389,
+        "p95": 19.887612999999874
+      },
+      "tools/list": {
+        "count": 4000,
+        "p50": 6.290188000000853,
+        "p95": 19.583302000000003
+      },
+      "tools/call": {
+        "count": 4000,
+        "p50": 7.403349000000162,
+        "p95": 20.985093000000234
+      }
+    }
+  },
+  "dockerImageBytes": {
+    "baseline": 102467560,
+    "after": 102467587
+  }
+}

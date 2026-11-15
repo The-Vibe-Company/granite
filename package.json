@@ -44,7 +44,8 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "prepare": "husky",
-    "test:heap": "node --expose-gc --import tsx scripts/mcp-heap.ts"
+    "test:heap": "node --expose-gc --import tsx scripts/mcp-heap.ts",
+    "test:bench": "tsx scripts/mcp-bench.ts"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.4",
