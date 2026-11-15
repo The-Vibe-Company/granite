@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.3](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.2...granite-mem-v0.2.3) (2026-11-15)
+
+
+### Features
+
+* **notes:** require author on capture and revise ([#98](https://github.com/The-Vibe-Company/granite/issues/98)) ([1e6d3f1](https://github.com/The-Vibe-Company/granite/commit/1e6d3f1559f5b75c1b9891b2d62b1feb3ce505d8))
+* **web:** add secure read-only personal dashboard to HTTP MCP ([#93](https://github.com/The-Vibe-Company/granite/issues/93)) ([32edf4e](https://github.com/The-Vibe-Company/granite/commit/32edf4eeed25fd9e3ca9c3ba58474af0f33312c7))
+
+
+### Bug Fixes
+
+* **mcp:** stop per-request schema metadata retention ([#96](https://github.com/The-Vibe-Company/granite/issues/96)) ([552b864](https://github.com/The-Vibe-Company/granite/commit/552b8640e5c8ba0e4f4ac470110f9a8444afac42))
+
+
+### Performance Improvements
+
+* **mcp:** defer document parsers and benchmark HTTP resources ([#97](https://github.com/The-Vibe-Company/granite/issues/97)) ([a58a276](https://github.com/The-Vibe-Company/granite/commit/a58a276d5a46243b6d08cef25235953418f16ada))
+
 ## [0.2.2](https://github.com/The-Vibe-Company/granite/compare/granite-mem-v0.2.1...granite-mem-v0.2.2) (2026-10-29)
 
 
