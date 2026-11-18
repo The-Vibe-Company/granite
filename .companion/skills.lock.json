@@ -1,83 +1,150 @@
 {
-  "lockfileVersion": 2,
+  "lockfileVersion": 3,
   "workspaces": {
     "430850df-2b12-4437-95bf-ec7045879843": {
       "apiUrl": "https://thecompanion.sh/v1",
       "skills": {
         "design-frontend-dev": {
-          "name": "design-frontend-dev",
-          "slug": "design-frontend-dev",
-          "skillId": "02decff6-b4ac-4d06-a494-abeeb08db9f3",
-          "companionSkillId": null,
-          "version": "3.1.1",
+          "addedAt": "2026-07-27T15:27:31.593641Z",
           "checksum": "sha256:8622f4d9885f0f6ad0f140010e4fc7faecf0c1f44fa5c856994c257e637edb84",
+          "companionSkillId": null,
+          "name": "design-frontend-dev",
+          "pinned": null,
+          "skillId": "02decff6-b4ac-4d06-a494-abeeb08db9f3",
+          "slug": "design-frontend-dev",
           "targets": [
             {
-              "tool": "claude-code",
-              "scope": "project",
-              "path": ".claude/skills/design-frontend-dev",
               "checksum": "sha256:2a5f797adc54654939f9ca22062d161bc5c941f7bbca692a352cfbc61b831090",
+              "packageChecksum": "",
+              "path": ".claude/skills/design-frontend-dev",
+              "scope": "project",
+              "tool": "claude-code",
               "version": "3.1.1"
             },
             {
-              "tool": "opencode",
-              "scope": "project",
-              "path": ".agents/skills/design-frontend-dev",
               "checksum": "sha256:2a5f797adc54654939f9ca22062d161bc5c941f7bbca692a352cfbc61b831090",
+              "packageChecksum": "",
+              "path": ".agents/skills/design-frontend-dev",
+              "scope": "project",
+              "tool": "opencode",
               "version": "3.1.1"
             }
           ],
-          "addedAt": "2026-07-27T15:27:31.593641Z"
+          "version": "3.1.1"
         },
         "review-code-dev": {
-          "name": "review-code-dev",
-          "slug": "review-code-dev",
-          "skillId": "b0780a97-6972-4a2b-8e88-f41a528900c7",
-          "companionSkillId": null,
-          "version": "1.0.7",
+          "addedAt": "2026-07-27T15:27:31.610822Z",
           "checksum": "sha256:ee857b250960d0c0430eaa07ee409a6175ef1f59ebef8d17e330efee0ff1c574",
+          "companionSkillId": null,
+          "name": "review-code-dev",
+          "pinned": null,
+          "skillId": "b0780a97-6972-4a2b-8e88-f41a528900c7",
+          "slug": "review-code-dev",
           "targets": [
             {
-              "tool": "claude-code",
-              "scope": "project",
-              "path": ".claude/skills/review-code-dev",
               "checksum": "sha256:8ad977bba35b23e4a8402e6c8bdbab23c47f7f6ec4d6d23c8f098da6d4dfd960",
+              "packageChecksum": "",
+              "path": ".claude/skills/review-code-dev",
+              "scope": "project",
+              "tool": "claude-code",
               "version": "1.0.7"
             },
             {
-              "tool": "opencode",
-              "scope": "project",
-              "path": ".agents/skills/review-code-dev",
               "checksum": "sha256:8ad977bba35b23e4a8402e6c8bdbab23c47f7f6ec4d6d23c8f098da6d4dfd960",
+              "packageChecksum": "",
+              "path": ".agents/skills/review-code-dev",
+              "scope": "project",
+              "tool": "opencode",
               "version": "1.0.7"
             }
           ],
-          "addedAt": "2026-07-27T15:27:31.610822Z"
+          "version": "1.0.7"
         },
         "ship-pr-dev": {
-          "name": "ship-pr-dev",
-          "slug": "ship-pr-dev",
-          "skillId": "bccb0c35-71bf-4fe8-ad7c-7a931889fa84",
-          "companionSkillId": null,
-          "version": "1.0.6",
+          "addedAt": "2026-07-27T15:27:31.618660Z",
           "checksum": "sha256:30403e1dcb20bf449c0c0180cce3cb13dd8045962cf10592fb0f1e875ebd9aad",
+          "companionSkillId": null,
+          "name": "ship-pr-dev",
+          "pinned": null,
+          "skillId": "bccb0c35-71bf-4fe8-ad7c-7a931889fa84",
+          "slug": "ship-pr-dev",
           "targets": [
             {
-              "tool": "claude-code",
-              "scope": "project",
-              "path": ".claude/skills/ship-pr-dev",
               "checksum": "sha256:4dba2cc16878dffbbb42b41427623622daf8a2a300f0f08b2e7e639e47fe944f",
+              "packageChecksum": "",
+              "path": ".claude/skills/ship-pr-dev",
+              "scope": "project",
+              "tool": "claude-code",
               "version": "1.0.6"
             },
             {
-              "tool": "opencode",
-              "scope": "project",
-              "path": ".agents/skills/ship-pr-dev",
               "checksum": "sha256:4dba2cc16878dffbbb42b41427623622daf8a2a300f0f08b2e7e639e47fe944f",
+              "packageChecksum": "",
+              "path": ".agents/skills/ship-pr-dev",
+              "scope": "project",
+              "tool": "opencode",
               "version": "1.0.6"
             }
           ],
-          "addedAt": "2026-07-27T15:27:31.618660Z"
+          "version": "1.0.6"
+        }
+      }
+    },
+    "github:the-vibe-company/skillpack": {
+      "apiUrl": "https://api.github.com",
+      "skills": {
+        "stageshow": {
+          "checksum": "sha256:297d0be1cbf8a79020db0c71a0488c91915fc80785c1a54ecb53d035d6a6843c",
+          "githubExecutables": [
+            "scripts/browser.mjs",
+            "scripts/class-clash-core.mjs",
+            "scripts/class-clash.mjs",
+            "scripts/dev.mjs",
+            "scripts/film-checks.mjs",
+            "scripts/film.mjs",
+            "scripts/jumps-core.mjs",
+            "scripts/jumps.mjs",
+            "scripts/layout-core.mjs",
+            "scripts/layout.mjs",
+            "scripts/motion-watch.mjs",
+            "scripts/verification.mjs"
+          ],
+          "name": "stageshow",
+          "pinned": "5e0c890910bbf058221bfe9b78f792f56f98dfb2",
+          "skillId": "",
+          "slug": "stageshow",
+          "source": {
+            "commit": "5e0c890910bbf058221bfe9b78f792f56f98dfb2",
+            "path": ".agents/skills/stageshow",
+            "ref": "5e0c890910bbf058221bfe9b78f792f56f98dfb2",
+            "repository": "the-vibe-company/skillpack",
+            "type": "github"
+          },
+          "targets": [
+            {
+              "checksum": "sha256:7609226e9885394a7beb86f0f5c950c72070f8ec5e1a257ef67be4a3f635b517",
+              "githubExecutables": [
+                "scripts/browser.mjs",
+                "scripts/class-clash-core.mjs",
+                "scripts/class-clash.mjs",
+                "scripts/dev.mjs",
+                "scripts/film-checks.mjs",
+                "scripts/film.mjs",
+                "scripts/jumps-core.mjs",
+                "scripts/jumps.mjs",
+                "scripts/layout-core.mjs",
+                "scripts/layout.mjs",
+                "scripts/motion-watch.mjs",
+                "scripts/verification.mjs"
+              ],
+              "packageChecksum": "sha256:297d0be1cbf8a79020db0c71a0488c91915fc80785c1a54ecb53d035d6a6843c",
+              "path": ".agents/skills/stageshow",
+              "scope": "project",
+              "tool": "shared",
+              "version": "5e0c890910bbf058221bfe9b78f792f56f98dfb2"
+            }
+          ],
+          "version": "5e0c890910bbf058221bfe9b78f792f56f98dfb2"
         }
       }
     }
